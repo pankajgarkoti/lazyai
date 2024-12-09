@@ -3,19 +3,30 @@ package app
 import (
 	"errors"
 	"fmt"
-	"os"
-
 	"github.com/awesome-gocui/gocui"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"time"
 )
 
 var fileCursor int
-var FILES []os.DirEntry
-var VIEW_FILE_TREE = "fileTree"
+var FILES []fs.DirEntry
+var VIEW_FILE_TREE = "filetree"
+var VIEW_METADATA = "metadata"
+var currentPath = "."
 
+// This function sets up the file tree view and the metadata view.
+// This is the main function that initializes the file tree view.
 func SetFileTreeView(gui *gocui.Gui) error {
 	size, err := calculateViewDimensions(gui, 0.35, 0.5)
 	if err != nil {
 		return errors.Join(errors.New("failed to calculate view dimensions"), err)
+	}
+
+	sizeMetadata, err := calculateViewDimensions(gui, 0.35, 0.1)
+	if err != nil {
+		return err
 	}
 
 	fileTreeView, err := gui.SetView(VIEW_FILE_TREE, size.TopLeftX, size.TopLeftY, size.BottomRightX, size.BottomRightY, 0)
@@ -23,9 +34,15 @@ func SetFileTreeView(gui *gocui.Gui) error {
 		return err
 	}
 
-	fileTreeView.Clear()
+	metadataView, err := gui.SetView(VIEW_METADATA, sizeMetadata.TopLeftX, size.BottomRightY+1, sizeMetadata.BottomRightX, size.BottomRightY+1+int(sizeMetadata.BottomRightY), 0)
+	if err != nil && err != gocui.ErrUnknownView {
+		return err
+	}
 
-	FILES, err = os.ReadDir(".")
+	fileTreeView.Clear()
+	metadataView.Clear()
+
+	FILES, err = os.ReadDir(currentPath)
 	if err != nil {
 		return err
 	}
@@ -45,9 +62,11 @@ func SetFileTreeView(gui *gocui.Gui) error {
 	}
 
 	renderFileTree(fileTreeView)
+	renderFileMetadata(metadataView)
 	return nil
 }
 
+// Set up keybindings for the file tree view.
 func bindKeys(gui *gocui.Gui) error {
 	var err error
 	err = gui.SetKeybinding(VIEW_FILE_TREE, gocui.KeyArrowDown, gocui.ModNone, cursorDown)
@@ -56,6 +75,11 @@ func bindKeys(gui *gocui.Gui) error {
 	}
 
 	err = gui.SetKeybinding(VIEW_FILE_TREE, gocui.KeyArrowUp, gocui.ModNone, cursorUp)
+	if err != nil {
+		return err
+	}
+
+	err = gui.SetKeybinding(VIEW_FILE_TREE, gocui.KeyEnter, gocui.ModNone, enter)
 	if err != nil {
 		return err
 	}
@@ -69,31 +93,98 @@ func bindKeys(gui *gocui.Gui) error {
 	return err
 }
 
+// Handle the down key. Changes the selscted file in the file tree view.
+// Also calls the renderFileMetadata function to update the metadata view.
 func cursorDown(gui *gocui.Gui, v *gocui.View) error {
 	if fileCursor < len(FILES)-1 {
 		fileCursor++
 		renderFileTree(v)
+
+		metadataView, err := gui.View(VIEW_METADATA)
+		if err != nil {
+			return err
+		}
+
+		renderFileMetadata(metadataView)
 	}
 	return nil
 }
 
+// Handle the up key. Changes the selscted file in the file tree view.
+// Also calls the renderFileMetadata function to update the metadata view.
 func cursorUp(gui *gocui.Gui, v *gocui.View) error {
 	if fileCursor > 0 {
 		fileCursor--
 		renderFileTree(v)
+
+		metadataView, err := gui.View(VIEW_METADATA)
+		if err != nil {
+			return err
+		}
+
+		renderFileMetadata(metadataView)
 	}
 	return nil
 }
 
+// Highlights the selected file in the file tree view.
+// If applicable, opens it in side panel.
+func enter(gui *gocui.Gui, v *gocui.View) error {
+	if fileCursor < 0 || fileCursor >= len(FILES) {
+		return nil
+	}
+
+	selectedFile := FILES[fileCursor]
+	if selectedFile.IsDir() {
+		currentPath = filepath.Join(currentPath, selectedFile.Name())
+		fileCursor = 0
+		return SetFileTreeView(gui)
+	}
+
+	return openFileInEditor(gui)
+}
+
+// Open the selected file in the editor side panel.
+func openFileInEditor(gui *gocui.Gui) error {
+	if fileCursor < 0 || fileCursor >= len(FILES) {
+		return nil
+	}
+	fileName := FILES[fileCursor].Name()
+	return SetEditorView(gui, filepath.Join(currentPath, fileName))
+}
+
+// Render the file tree view.
 func renderFileTree(view *gocui.View) {
 	view.Clear()
 	for i, file := range FILES {
+		prefix := "  "
+		if file.IsDir() {
+			prefix = "->"
+		}
 		if i == fileCursor {
-			fmt.Fprintln(view, "->", file.Name()) // Mark selected file
+			fmt.Fprintln(view, "->", prefix, file.Name()) // Mark selected file
 		} else {
-			fmt.Fprintln(view, file.Name())
+			fmt.Fprintln(view, prefix, file.Name())
 		}
 	}
+}
+
+func renderFileMetadata(view *gocui.View) {
+	view.Clear()
+	if fileCursor < 0 || fileCursor >= len(FILES) {
+		return
+	}
+
+	file := FILES[fileCursor]
+	fileInfo, err := file.Info()
+	if err != nil {
+		fmt.Fprintf(view, "Error: %v\n", err)
+		return
+	}
+
+	size := fileInfo.Size()
+	modTime := fileInfo.ModTime().Format(time.RFC1123)
+	fmt.Fprintf(view, "Name: %s\nSize: %d bytes\nModified: %s\n", fileInfo.Name(), size, modTime)
 }
 
 func calculateViewDimensions(gui *gocui.Gui, h_fraction, w_fraction float64) (ViewDimensions, error) {
