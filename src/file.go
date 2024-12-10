@@ -19,6 +19,7 @@ var currentPath = "."
 // This function sets up the file tree view and the metadata view.
 // This is the main function that initializes the file tree view.
 func SetFileTreeView(gui *gocui.Gui) error {
+
 	if err := setupFileTreeView(gui); err != nil {
 		return err
 	}
@@ -41,7 +42,7 @@ func SetFileTreeView(gui *gocui.Gui) error {
 }
 
 func setupFileTreeView(gui *gocui.Gui) error {
-	fileTreeSize, err := calculateViewDimensions(gui, 0.6, 0.25)
+	fileTreeSize, err := CalculateViewDimensions(gui, 0.6, 0.25)
 	if err != nil {
 		return errors.Join(errors.New("failed to calculate view dimensions"), err)
 	}
@@ -67,12 +68,12 @@ func setupFileTreeView(gui *gocui.Gui) error {
 }
 
 func setupMetadataView(gui *gocui.Gui) error {
-	fileTreeSize, err := calculateViewDimensions(gui, 0.6, 0.25)
+	fileTreeSize, err := CalculateViewDimensions(gui, 0.6, 0.25)
 	if err != nil {
 		return err
 	}
 
-	metadataSize, err := calculateViewDimensions(gui, 0.4, 0.25)
+	metadataSize, err := CalculateViewDimensions(gui, 0.4, 0.25)
 	if err != nil {
 		return err
 	}
@@ -155,24 +156,6 @@ func renderFileMetadata(view *gocui.View) {
 	fmt.Fprintf(view, "Size     : %d bytes\n", size)
 	fmt.Fprintf(view, "Modified : %s\n", modTime)
 	fmt.Fprintf(view, "Path     : %s\n", file.path)
-}
-
-func calculateViewDimensions(gui *gocui.Gui, h_fraction, w_fraction float64) (ViewDimensions, error) {
-	maxX, maxY := gui.Size()
-
-	if (h_fraction > 1) || (w_fraction > 1) {
-		return ViewDimensions{}, errors.New("fractions must be between 0 and 1")
-	}
-
-	width := int(float64(maxX) * w_fraction)
-	height := int(float64(maxY) * h_fraction)
-
-	return ViewDimensions{
-		TopLeftX:     0,
-		TopLeftY:     0,
-		BottomRightX: width,
-		BottomRightY: height,
-	}, nil
 }
 
 var displayedEntries []DisplayedEntry
