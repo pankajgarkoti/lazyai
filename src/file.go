@@ -19,36 +19,12 @@ var currentPath = "."
 // This function sets up the file tree view and the metadata view.
 // This is the main function that initializes the file tree view.
 func SetFileTreeView(gui *gocui.Gui) error {
-	size, err := calculateViewDimensions(gui, 0.35, 0.5)
-	if err != nil {
-		return errors.Join(errors.New("failed to calculate view dimensions"), err)
-	}
-
-	sizeMetadata, err := calculateViewDimensions(gui, 0.35, 0.1)
-	if err != nil {
+	if err := setupFileTreeView(gui); err != nil {
 		return err
 	}
 
-	fileTreeView, err := gui.SetView(VIEW_FILE_TREE, size.TopLeftX, size.TopLeftY, size.BottomRightX, size.BottomRightY, 0)
-	if err != nil && err != gocui.ErrUnknownView {
+	if err := setupMetadataView(gui); err != nil {
 		return err
-	}
-
-	metadataView, err := gui.SetView(VIEW_METADATA, sizeMetadata.TopLeftX, size.BottomRightY+1, sizeMetadata.BottomRightX, size.BottomRightY+1+int(sizeMetadata.BottomRightY), 0)
-	if err != nil && err != gocui.ErrUnknownView {
-		return err
-	}
-
-	fileTreeView.Clear()
-	metadataView.Clear()
-
-	FILES, err = os.ReadDir(currentPath)
-	if err != nil {
-		return err
-	}
-
-	for _, file := range FILES {
-		fmt.Fprintln(fileTreeView, file.Name())
 	}
 
 	if err := bindKeys(gui); err != nil {
@@ -61,7 +37,52 @@ func SetFileTreeView(gui *gocui.Gui) error {
 		return err
 	}
 
+	return nil
+}
+
+func setupFileTreeView(gui *gocui.Gui) error {
+	fileTreeSize, err := calculateViewDimensions(gui, 0.6, 0.25)
+	if err != nil {
+		return errors.Join(errors.New("failed to calculate view dimensions"), err)
+	}
+
+	fileTreeView, err := gui.SetView(VIEW_FILE_TREE, fileTreeSize.TopLeftX, fileTreeSize.TopLeftY, fileTreeSize.BottomRightX, fileTreeSize.BottomRightY, 0)
+	if err != nil && err != gocui.ErrUnknownView {
+		return err
+	}
+
+	fileTreeView.Clear()
+
+	FILES, err = os.ReadDir(currentPath)
+	if err != nil {
+		return err
+	}
+
+	for _, file := range FILES {
+		fmt.Fprintln(fileTreeView, file.Name())
+	}
+
 	renderFileTree(fileTreeView)
+	return nil
+}
+
+func setupMetadataView(gui *gocui.Gui) error {
+	fileTreeSize, err := calculateViewDimensions(gui, 0.6, 0.25)
+	if err != nil {
+		return err
+	}
+
+	metadataSize, err := calculateViewDimensions(gui, 0.4, 0.25)
+	if err != nil {
+		return err
+	}
+
+	metadataView, err := gui.SetView(VIEW_METADATA, metadataSize.TopLeftX, fileTreeSize.BottomRightY+1, metadataSize.BottomRightX, fileTreeSize.BottomRightY+1+metadataSize.BottomRightY, 0)
+	if err != nil && err != gocui.ErrUnknownView {
+		return err
+	}
+
+	metadataView.Clear()
 	renderFileMetadata(metadataView)
 	return nil
 }
@@ -107,20 +128,33 @@ var expandedDirs = make(map[string]bool)
 
 func renderFileMetadata(view *gocui.View) {
 	view.Clear()
-	if fileCursor < 0 || fileCursor >= len(FILES) {
+
+	if fileCursor < 0 || fileCursor >= len(displayedEntries) {
+		fmt.Fprintln(view, "No file selected.")
 		return
 	}
 
-	file := FILES[fileCursor]
-	fileInfo, err := file.Info()
+	file := displayedEntries[fileCursor]
+	fileInfo, err := os.Stat(file.path) // Use full path to get nested file info
 	if err != nil {
 		fmt.Fprintf(view, "Error: %v\n", err)
 		return
 	}
 
+	fileType := "File"
+	if fileInfo.IsDir() {
+		fileType = "Directory"
+	}
+
 	size := fileInfo.Size()
 	modTime := fileInfo.ModTime().Format(time.RFC1123)
-	fmt.Fprintf(view, "Name: %s\nSize: %d bytes\nModified: %s\n", fileInfo.Name(), size, modTime)
+
+	fmt.Fprintf(view, "File Metadata\n-------------\n")
+	fmt.Fprintf(view, "Name     : %s\n", fileInfo.Name())
+	fmt.Fprintf(view, "Type     : %s\n", fileType)
+	fmt.Fprintf(view, "Size     : %d bytes\n", size)
+	fmt.Fprintf(view, "Modified : %s\n", modTime)
+	fmt.Fprintf(view, "Path     : %s\n", file.path)
 }
 
 func calculateViewDimensions(gui *gocui.Gui, h_fraction, w_fraction float64) (ViewDimensions, error) {

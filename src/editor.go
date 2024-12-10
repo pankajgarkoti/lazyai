@@ -35,7 +35,7 @@ func SetEditorView(gui *gocui.Gui, fileName string) error {
 
 func calculateEditorViewDimensions(gui *gocui.Gui) (ViewDimensions, error) {
 	maxX, maxY := gui.Size()
-	editorWidth := int(float64(maxX) * 0.65) // adjust the width as needed
+	editorWidth := int(float64(maxX) * 0.75) // adjust the width as needed - [05:51:28]
 	editorHeight := maxY
 
 	return ViewDimensions{
