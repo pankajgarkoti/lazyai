@@ -93,57 +93,6 @@ func bindKeys(gui *gocui.Gui) error {
 	return err
 }
 
-// Handle the down key. Changes the selscted file in the file tree view.
-// Also calls the renderFileMetadata function to update the metadata view.
-func cursorDown(gui *gocui.Gui, v *gocui.View) error {
-	if fileCursor < len(FILES)-1 {
-		fileCursor++
-		renderFileTree(v)
-
-		metadataView, err := gui.View(VIEW_METADATA)
-		if err != nil {
-			return err
-		}
-
-		renderFileMetadata(metadataView)
-	}
-	return nil
-}
-
-// Handle the up key. Changes the selscted file in the file tree view.
-// Also calls the renderFileMetadata function to update the metadata view.
-func cursorUp(gui *gocui.Gui, v *gocui.View) error {
-	if fileCursor > 0 {
-		fileCursor--
-		renderFileTree(v)
-
-		metadataView, err := gui.View(VIEW_METADATA)
-		if err != nil {
-			return err
-		}
-
-		renderFileMetadata(metadataView)
-	}
-	return nil
-}
-
-// Highlights the selected file in the file tree view.
-// If applicable, opens it in side panel.
-func enter(gui *gocui.Gui, v *gocui.View) error {
-	if fileCursor < 0 || fileCursor >= len(FILES) {
-		return nil
-	}
-
-	selectedFile := FILES[fileCursor]
-	if selectedFile.IsDir() {
-		currentPath = filepath.Join(currentPath, selectedFile.Name())
-		fileCursor = 0
-		return SetFileTreeView(gui)
-	}
-
-	return openFileInEditor(gui)
-}
-
 // Open the selected file in the editor side panel.
 func openFileInEditor(gui *gocui.Gui) error {
 	if fileCursor < 0 || fileCursor >= len(FILES) {
@@ -154,20 +103,7 @@ func openFileInEditor(gui *gocui.Gui) error {
 }
 
 // Render the file tree view.
-func renderFileTree(view *gocui.View) {
-	view.Clear()
-	for i, file := range FILES {
-		prefix := "  "
-		if file.IsDir() {
-			prefix = "->"
-		}
-		if i == fileCursor {
-			fmt.Fprintln(view, "->", prefix, file.Name()) // Mark selected file
-		} else {
-			fmt.Fprintln(view, prefix, file.Name())
-		}
-	}
-}
+var expandedDirs = make(map[string]bool)
 
 func renderFileMetadata(view *gocui.View) {
 	view.Clear()
@@ -203,4 +139,84 @@ func calculateViewDimensions(gui *gocui.Gui, h_fraction, w_fraction float64) (Vi
 		BottomRightX: width,
 		BottomRightY: height,
 	}, nil
+}
+
+var displayedEntries []DisplayedEntry
+
+func renderFileTree(view *gocui.View) {
+	view.Clear()
+	displayedEntries = []DisplayedEntry{}
+	renderDir(currentPath, view, "", true, 0)
+}
+
+func renderDir(path string, view *gocui.View, indent string, mainDir bool, level int) {
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		fmt.Fprintf(view, "Error: %v\n", err)
+		return
+	}
+
+	for _, file := range entries {
+		displayedEntries = append(displayedEntries, DisplayedEntry{
+			path:  filepath.Join(path, file.Name()),
+			name:  file.Name(),
+			isDir: file.IsDir(),
+			level: level,
+		})
+
+		if fileCursor == len(displayedEntries)-1 {
+			fmt.Fprintf(view, "%s-> %s\n", indent, file.Name())
+		} else {
+			fmt.Fprintf(view, "%s   %s\n", indent, file.Name())
+		}
+
+		if file.IsDir() && expandedDirs[filepath.Join(path, file.Name())] {
+			renderDir(filepath.Join(path, file.Name()), view, indent+"   ", false, level+1)
+		}
+	}
+}
+
+func cursorDown(gui *gocui.Gui, v *gocui.View) error {
+	if fileCursor < len(displayedEntries)-1 {
+		fileCursor++
+		renderFileTree(v)
+
+		metadataView, err := gui.View(VIEW_METADATA)
+		if err != nil {
+			return err
+		}
+
+		renderFileMetadata(metadataView)
+	}
+	return nil
+}
+
+func cursorUp(gui *gocui.Gui, v *gocui.View) error {
+	if fileCursor > 0 {
+		fileCursor--
+		renderFileTree(v)
+
+		metadataView, err := gui.View(VIEW_METADATA)
+		if err != nil {
+			return err
+		}
+
+		renderFileMetadata(metadataView)
+	}
+	return nil
+}
+
+func enter(gui *gocui.Gui, v *gocui.View) error {
+	if fileCursor < 0 || fileCursor >= len(displayedEntries) {
+		return nil
+	}
+
+	selectedEntry := displayedEntries[fileCursor]
+	if selectedEntry.isDir {
+		expandedDirs[selectedEntry.path] = !expandedDirs[selectedEntry.path] // Toggle expanded state
+		renderFileTree(v)
+		return nil
+	}
+
+	return SetEditorView(gui, selectedEntry.path)
 }
