@@ -111,6 +111,10 @@ func (h *harness) key(k string) {
 	h.update(msg)
 }
 
+func (h *harness) mouse(x, y int, button tea.MouseButton) {
+	h.update(tea.MouseMsg{X: x, Y: y, Action: tea.MouseActionPress, Button: button})
+}
+
 func (h *harness) writeFile(t *testing.T, rel string, lines int) string {
 	t.Helper()
 	var b strings.Builder
@@ -244,6 +248,139 @@ func TestShowEventOpensShowModeWithQuickfixSemantics(t *testing.T) {
 	h.key("esc")
 	if h.m.focus != FocusSidebar || h.m.mode != ModeShow {
 		t.Fatalf("focus=%v mode=%v", h.m.focus, h.m.mode)
+	}
+}
+
+func TestMouseSelectsSidebarRowsAndScrollsContent(t *testing.T) {
+	h := newHarness(t)
+	h.update(tea.WindowSizeMsg{Width: 120, Height: 12})
+	p := h.writeFile(t, "a.go", 100)
+	var locs []hooks.Location
+	for i := 1; i <= 20; i++ {
+		locs = append(locs, hooks.Location{Path: p, Line: i * 4, Text: fmt.Sprint(i)})
+	}
+	h.hook(hooks.Event{Type: "show", Locations: locs})
+
+	// Sidebar rows begin below the workstream strip and Show heading.
+	h.mouse(2, len(h.m.streams)+5, tea.MouseButtonLeft)
+	if h.m.showSel != 1 || h.m.focus != FocusSidebar {
+		t.Fatalf("sidebar click: sel=%d focus=%v", h.m.showSel, h.m.focus)
+	}
+
+	// Wheel movement follows the list and keeps the selected row visible.
+	for range 8 {
+		h.mouse(2, len(h.m.streams)+5, tea.MouseButtonWheelDown)
+	}
+	if h.m.showSel != 19 || h.m.showOffset == 0 {
+		t.Fatalf("sidebar wheel: sel=%d offset=%d", h.m.showSel, h.m.showOffset)
+	}
+	if !strings.Contains(stripANSI(h.m.View()), "20 ") {
+		t.Fatal("selected location should remain visible after scrolling")
+	}
+
+	// Clicking and wheeling the content pane focuses and scrolls that viewport.
+	h.mouse(h.m.sidebarWidth+2, 2, tea.MouseButtonLeft)
+	if h.m.focus != FocusContent {
+		t.Fatal("content click should focus content")
+	}
+	before := h.m.showView.YOffset
+	h.mouse(h.m.sidebarWidth+2, 2, tea.MouseButtonWheelDown)
+	if h.m.showView.YOffset <= before {
+		t.Fatalf("content wheel did not scroll: before=%d after=%d", before, h.m.showView.YOffset)
+	}
+	after := h.m.showView.YOffset
+	h.hook(hooks.Event{Type: "idle"})
+	if h.m.showView.YOffset != after {
+		t.Fatalf("unrelated refresh reset scroll: before=%d after=%d", after, h.m.showView.YOffset)
+	}
+}
+
+func TestMouseControlsPromptAndQuitDialog(t *testing.T) {
+	h := newHarness(t)
+	h.writeFile(t, "a.go", 3)
+	gitRepo(t, h.root)
+	if err := exec.Command("git", "-C", h.root, "branch", "feat/mouse").Run(); err != nil {
+		t.Fatal(err)
+	}
+	h.m.refreshRepo()
+	h.update(EscapeMsg{})
+	h.key("w")
+	rw, _ := h.m.rightInner()
+	matchRows := h.m.renderMatches(rw)
+	firstRow := 1 + len(h.m.renderPrompt(rw)) - len(matchRows)
+	h.mouse(h.m.sidebarWidth+4, firstRow+1, tea.MouseButtonLeft)
+	if h.m.prompting || h.m.name != "feat/mouse" {
+		t.Fatalf("prompt match click: prompting=%v name=%q", h.m.prompting, h.m.name)
+	}
+
+	h.update(QuitMsg{})
+	contentX := h.m.sidebarWidth + 1
+	rows := h.m.renderQuitPrompt(rw)
+	for y, row := range rows {
+		if x, _, ok := labelCellBounds(stripANSI(row), "n no"); ok {
+			h.mouse(contentX+x, y+1, tea.MouseButtonLeft)
+			break
+		}
+	}
+	if h.m.confirmQuit {
+		t.Fatal("clicking no should close quit confirmation")
+	}
+}
+
+func TestMouseSelectsWorktreeBaseChoice(t *testing.T) {
+	h := newHarness(t)
+	h.writeFile(t, "a.go", 3)
+	gitRepo(t, h.root)
+	h.m.refreshRepo()
+	h.update(EscapeMsg{})
+	h.key("w")
+	for _, r := range "feat/from-mouse" {
+		h.key(string(r))
+	}
+	h.key("enter")
+	if h.m.promptStage != stageBase {
+		t.Fatal("new branch should reach base selection")
+	}
+
+	rw, _ := h.m.rightInner()
+	contentX := h.m.sidebarWidth + 1
+	label := "c " + h.m.repo.Branch + " (current)"
+	clicked := false
+	for y, row := range h.m.renderPrompt(rw) {
+		if x, _, ok := labelCellBounds(stripANSI(row), label); ok {
+			h.mouse(contentX+x, y+1, tea.MouseButtonLeft)
+			clicked = true
+			break
+		}
+	}
+	if !clicked {
+		t.Fatalf("base choice %q was not rendered", label)
+	}
+	if h.m.prompting || h.m.name != "feat/from-mouse" {
+		t.Fatalf("base click: prompting=%v name=%q", h.m.prompting, h.m.name)
+	}
+}
+
+func TestMouseSwitchesWorkstreams(t *testing.T) {
+	h := twoStreams(t)
+	h.update(EscapeMsg{})
+	h.mouse(2, 2, tea.MouseButtonLeft)
+	if h.m.cur != 0 || !h.m.normal() {
+		t.Fatalf("workstream click: cur=%d mode=%v focus=%v", h.m.cur, h.m.mode, h.m.focus)
+	}
+}
+
+func TestMouseInLivePaneIsForwardedWithLocalCoordinates(t *testing.T) {
+	h := newHarness(t)
+	msg := tea.MouseMsg{X: h.m.sidebarWidth + 4, Y: 6, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft}
+	h.update(msg)
+	contentX := h.m.sidebarWidth + 1
+	got := mouseEvent(msg, msg.X-contentX, msg.Y-1)
+	if got.X != 3 || got.Y != 5 || got.Button != 1 || got.Action != terminal.MousePress {
+		t.Fatalf("translated mouse event = %+v", got)
+	}
+	if h.m.focus != FocusContent {
+		t.Fatal("live pane mouse event should keep content focused")
 	}
 }
 

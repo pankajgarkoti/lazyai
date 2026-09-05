@@ -139,6 +139,7 @@ func (m *Model) selectIndex(i int) {
 		m.showSel = 0
 		m.moveSelection(i)
 	}
+	m.ensureSidebarSelectionVisible()
 }
 
 func (m *Model) moveSelection(delta int) {
@@ -158,6 +159,7 @@ func (m *Model) moveSelection(delta int) {
 		if m.showSel < 0 {
 			m.showSel = 0
 		}
+		m.ensureSidebarSelectionVisible()
 		m.refreshShow(false)
 	}
 }

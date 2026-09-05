@@ -209,7 +209,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	p = tea.NewProgram(model, tea.WithInput(hostR), tea.WithOutput(os.Stdout), tea.WithAltScreen())
+	p = tea.NewProgram(model, tea.WithInput(hostR), tea.WithOutput(os.Stdout), tea.WithAltScreen(), tea.WithMouseCellMotion())
 
 	router.OnEscape = func() { p.Send(app.EscapeMsg{}) }
 	router.OnQuit = func() { p.Send(app.QuitMsg{}) }

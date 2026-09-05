@@ -7,6 +7,7 @@
 package input
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -172,6 +173,16 @@ func (r *Router) Run() error {
 }
 
 func (r *Router) route(b []byte) {
+	if start, end := mouseSequenceBounds(b); start >= 0 && (start > 0 || end < len(b)) {
+		if start > 0 {
+			r.route(b[:start])
+		}
+		r.route(b[start:end])
+		if end < len(b) {
+			r.route(b[end:])
+		}
+		return
+	}
 	if len(b) == 1 && b[0] == 0x1a && !r.forward.Load() && r.OnZoom != nil {
 		r.OnZoom()
 		return
@@ -182,6 +193,13 @@ func (r *Router) route(b []byte) {
 			dst = "host"
 		}
 		fmt.Fprintf(r.debug, "%s %-5s %q\n", time.Now().Format("15:04:05.000"), dst, b)
+	}
+	// Mouse coordinates need layout-aware hit testing and translation before
+	// they can be sent to an embedded child, so Bubble Tea always handles them.
+	if bytes.HasPrefix(b, []byte("\x1b[<")) || (len(b) >= 3 && bytes.Equal(b[:3], []byte("\x1b[M"))) {
+		r.flushPending()
+		_, _ = r.host.Write(b)
+		return
 	}
 	if !r.forward.Load() || r.captureNext.Swap(false) {
 		_, _ = r.host.Write(b)
@@ -220,4 +238,21 @@ func (r *Router) route(b []byte) {
 	default:
 		_, _ = r.childSink().Write(b)
 	}
+}
+
+func mouseSequenceBounds(b []byte) (start, end int) {
+	start = bytes.Index(b, []byte("\x1b[<"))
+	if start >= 0 {
+		for i := start + 3; i < len(b); i++ {
+			if b[i] == 'M' || b[i] == 'm' {
+				return start, i + 1
+			}
+		}
+		return -1, -1
+	}
+	start = bytes.Index(b, []byte("\x1b[M"))
+	if start >= 0 && len(b)-start >= 6 {
+		return start, start + 6
+	}
+	return -1, -1
 }

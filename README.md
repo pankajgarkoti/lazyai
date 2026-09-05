@@ -70,6 +70,11 @@ content pane; `Enter` focuses the content, `Esc` returns to the sidebar.
 | `1`–`9`            | Jump to entry                | –                        |
 | `[` / `]` (Show)   | Previous / next location     | Previous / next location |
 
+Mouse clicks focus panes and select workstreams, files, locations, and prompt
+choices. The wheel scrolls the pane under the pointer; right-click cancels the
+worktree prompt. Mouse input inside OpenCode or a terminal is forwarded with
+coordinates adjusted to that pane.
+
 `r` pastes a reference such as `[internal/app/keys.go:25 — r key handled]`
 into OpenCode's prompt and returns to Interactive so you can keep typing.
 
@@ -205,5 +210,4 @@ and whether it went to OpenCode (`child`) or to LazyAI (`host`).
 ## Known limitations
 
 - Files changed via shell commands (not `edit`/`write`) are not tracked yet.
-- Mouse events are not forwarded to OpenCode.
 - `opencode --pure` disables external plugins, including LazyAI's.

@@ -27,14 +27,15 @@ func (m *Model) addStream(root, name string) (*stream, error) {
 		return nil, err
 	}
 	s := &stream{
-		root:     root,
-		token:    token,
-		term:     term,
-		ledger:   activity.New(root),
-		mode:     ModeInteractive,
-		focus:    FocusContent,
-		diffView: viewport.New(w, h),
-		showView: viewport.New(w, h),
+		root:       root,
+		token:      token,
+		term:       term,
+		ledger:     activity.New(root),
+		mode:       ModeInteractive,
+		focus:      FocusContent,
+		diffView:   viewport.New(w, h),
+		showView:   viewport.New(w, h),
+		showTarget: -1,
 	}
 	if info, err := git.Inspect(root); err == nil {
 		s.repo = info
