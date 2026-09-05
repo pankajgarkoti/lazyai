@@ -152,6 +152,22 @@ func (t *Terminal) Write(p []byte) (int, error) {
 	return t.pty.Write(p)
 }
 
+// Signal sends a process signal to the terminal's direct child.
+func (t *Terminal) Signal(sig os.Signal) error {
+	if t.cmd.Process == nil {
+		return os.ErrProcessDone
+	}
+	return t.cmd.Process.Signal(sig)
+}
+
+// PID returns the direct child's process ID.
+func (t *Terminal) PID() int {
+	if t.cmd.Process == nil {
+		return 0
+	}
+	return t.cmd.Process.Pid
+}
+
 // SendMouse forwards a mouse event using the mode and encoding requested by
 // the child. It is ignored when the child has not enabled mouse reporting.
 func (t *Terminal) SendMouse(event Mouse) {

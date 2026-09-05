@@ -70,6 +70,17 @@ CREATE TABLE IF NOT EXISTS repo_state (
 	value TEXT NOT NULL,
 	PRIMARY KEY (repo, key)
 );
+CREATE TABLE IF NOT EXISTS runtime_sessions (
+	project       TEXT PRIMARY KEY,
+	root          TEXT NOT NULL,
+	socket        TEXT NOT NULL,
+	pid           INTEGER NOT NULL,
+	args          TEXT NOT NULL,
+	status        TEXT NOT NULL,
+	started_at    TEXT NOT NULL,
+	last_attached TEXT NOT NULL,
+	exited_at     TEXT NOT NULL
+);
 `
 
 // Worktree is a worktree LazyAI has run a workstream in.
@@ -81,6 +92,19 @@ type Worktree struct {
 	CreatedAt  time.Time
 	LastOpened time.Time
 	Dormant    bool
+}
+
+// RuntimeSession is one project-scoped supervisor known to LazyAI.
+type RuntimeSession struct {
+	Project      string
+	Root         string
+	Socket       string
+	PID          int
+	Args         string
+	Status       string
+	StartedAt    time.Time
+	LastAttached time.Time
+	ExitedAt     time.Time
 }
 
 // DefaultPath is where the store lives unless LAZYAI_DB overrides it:
@@ -264,4 +288,74 @@ func (d *DB) State(repo, key string) (string, error) {
 		return "", nil
 	}
 	return v, err
+}
+
+// UpsertRuntimeSession records a newly started or replaced project supervisor.
+func (d *DB) UpsertRuntimeSession(s RuntimeSession) error {
+	started := s.StartedAt
+	if started.IsZero() {
+		started = time.Now().UTC()
+	}
+	attached := s.LastAttached
+	if attached.IsZero() {
+		attached = started
+	}
+	_, err := d.db.Exec(`INSERT INTO runtime_sessions(project, root, socket, pid, args, status, started_at, last_attached, exited_at)
+		VALUES (?,?,?,?,?,?,?,?,?)
+		ON CONFLICT(project) DO UPDATE SET root=excluded.root, socket=excluded.socket, pid=excluded.pid,
+		args=excluded.args, status=excluded.status, started_at=excluded.started_at,
+		last_attached=excluded.last_attached, exited_at=excluded.exited_at`,
+		s.Project, s.Root, s.Socket, s.PID, s.Args, s.Status, formatTime(started), formatTime(attached), formatTime(s.ExitedAt))
+	return err
+}
+
+// MarkRuntimeSession updates lifecycle status for a project supervisor.
+func (d *DB) MarkRuntimeSession(project, status string) error {
+	exited := ""
+	if status != "running" {
+		exited = formatTime(time.Now().UTC())
+	}
+	_, err := d.db.Exec(`UPDATE runtime_sessions SET status = ?, exited_at = ? WHERE project = ?`, status, exited, project)
+	return err
+}
+
+// TouchRuntimeSession records a successful client attachment.
+func (d *DB) TouchRuntimeSession(project string) error {
+	_, err := d.db.Exec(`UPDATE runtime_sessions SET last_attached = ?, status = 'running', exited_at = '' WHERE project = ?`, now(), project)
+	return err
+}
+
+// RuntimeSessions lists known project supervisors, newest attachment first.
+func (d *DB) RuntimeSessions() ([]RuntimeSession, error) {
+	rows, err := d.db.Query(`SELECT project, root, socket, pid, args, status, started_at, last_attached, exited_at
+		FROM runtime_sessions ORDER BY last_attached DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var sessions []RuntimeSession
+	for rows.Next() {
+		var s RuntimeSession
+		var started, attached, exited string
+		if err := rows.Scan(&s.Project, &s.Root, &s.Socket, &s.PID, &s.Args, &s.Status, &started, &attached, &exited); err != nil {
+			return nil, err
+		}
+		s.StartedAt = parseTime(started)
+		s.LastAttached = parseTime(attached)
+		s.ExitedAt = parseTime(exited)
+		sessions = append(sessions, s)
+	}
+	return sessions, rows.Err()
+}
+
+func formatTime(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.UTC().Format(time.RFC3339Nano)
+}
+
+func parseTime(v string) time.Time {
+	t, _ := time.Parse(time.RFC3339Nano, v)
+	return t
 }

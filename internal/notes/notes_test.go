@@ -3,6 +3,7 @@ package notes
 import (
 	"path/filepath"
 	"testing"
+	"time"
 
 	"lazyai/internal/show"
 )
@@ -45,6 +46,40 @@ func TestRecordAndRecent(t *testing.T) {
 	defer db2.Close()
 	if sets, _ := db2.Recent("/r", 1); len(sets) != 1 {
 		t.Fatal("data lost across reopen")
+	}
+}
+
+func TestRuntimeSessionRegistryPersistsStatus(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "n.db")
+	db, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := time.Now().UTC().Truncate(time.Second)
+	if err := db.UpsertRuntimeSession(RuntimeSession{
+		Project: "/repo", Root: "/repo/worktree", Socket: "/tmp/lazyai.sock",
+		PID: 42, Status: "running", StartedAt: started,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.MarkRuntimeSession("/repo", "stale"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	db, err = Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	sessions, err := db.RuntimeSessions()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions) != 1 || sessions[0].Project != "/repo" || sessions[0].PID != 42 || sessions[0].Status != "stale" {
+		t.Fatalf("sessions=%+v", sessions)
 	}
 }
 

@@ -29,6 +29,23 @@ configuration, providers, sessions, skills and plugins all apply; LazyAI only
 adds one extra config directory (`OPENCODE_CONFIG_DIR`) containing its plugin
 and skill, materialized under your user cache dir.
 
+LazyAI keeps one session alive per project after the terminal client exits.
+Run the same command again from the repository or any linked worktree to
+reattach to its existing OpenCode processes and screen.
+
+```sh
+lazyai                         # start or reattach this project
+lazyai list                    # show known running, stopped, exited, and stale sessions
+lazyai stop --dir ~/code/app   # terminate one project's session
+```
+
+`Ctrl+Q` detaches without stopping OpenCode, shells, hooks, or workstreams. A
+new attachment takes over from an older client. Git worktrees share the session
+for their canonical main checkout; independent clones and non-Git directories
+remain isolated. A machine reboot or supervisor failure loses live PTYs and is
+reported as `stale` by `lazyai list`; LazyAI does not pretend to reconstruct
+those processes.
+
 ## Modes and keys
 
 **Interactive** (default) – the real OpenCode TUI owns the keyboard.
@@ -44,7 +61,7 @@ at code.
 | `Esc`     | Normal: focus out of the pane (visible, no input)      |
 | `i` / `t` | Into OpenCode / into the terminal                   |
 | `jk`      | Send a real Escape into the pane (palette, interrupt)|
-| `Ctrl+Q`  | Ask to quit LazyAI (and OpenCode); confirm with `y` |
+| `Ctrl+Q`  | Detach; leave LazyAI and all child processes running |
 
 **Diff** / **Show** – LazyAI owns the keyboard. Each has a sidebar and a
 content pane; `Enter` focuses the content, `Esc` returns to the sidebar.
@@ -137,6 +154,8 @@ override with `LAZYAI_DB`) keeps, per repository:
   (stops its OpenCode and shell, keeps the worktree); the `w` prompt lists
   dormant worktrees and typing one wakes it.
 - `repo_state` — small key/value state such as `last_branch`.
+- `runtime_sessions` — project supervisor discovery and lifecycle metadata.
+  The Unix socket, rather than the recorded PID, is authoritative for liveness.
 
 ## Creature comforts
 
@@ -188,7 +207,8 @@ lives in `internal/theme`; Lip Gloss degrades colours on non-truecolor terminals
 ## Layout
 
 ```
-cmd/lazyai            entry point: PTY, raw-mode stdin, wiring
+cmd/lazyai            attach client, supervisor lifecycle, and direct TUI wiring
+internal/supervisor   project identity, Unix-socket protocol, outer PTY ownership
 internal/terminal     child process in a PTY + VT emulator + screen renderer
 internal/input        raw byte router: child vs host, jk / Ctrl+Space / Ctrl+Z / Ctrl+Q chords
 internal/hooks        loopback HTTP receiver for plugin events (one token per workstream)
