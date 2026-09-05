@@ -6,6 +6,8 @@ import (
 	"io"
 	"net"
 	"sync"
+
+	inputpkg "lazyai/internal/input"
 )
 
 const detachByte = byte(0x11) // Ctrl+Q
@@ -52,31 +54,27 @@ func Attach(conn net.Conn, input io.Reader, output io.Writer, width, height int,
 	}
 
 	go func() {
-		buf := make([]byte, 4096)
-		for {
-			n, err := input.Read(buf)
-			if n > 0 {
-				chunk := buf[:n]
+		err := inputpkg.ReadFramed(input, func(chunk []byte, pasted bool) error {
+			if !pasted {
 				for i, b := range chunk {
 					if b != detachByte {
 						continue
 					}
 					if i > 0 {
-						_ = w.send(Message{Type: MessageInput, Data: append([]byte(nil), chunk[:i]...)})
+						if err := w.send(Message{Type: MessageInput, Data: chunk[:i]}); err != nil {
+							return err
+						}
 					}
 					detachOnce.Do(func() { close(detached) })
 					_ = conn.Close()
-					return
-				}
-				if sendErr := w.send(Message{Type: MessageInput, Data: append([]byte(nil), chunk...)}); sendErr != nil {
-					return
+					return io.EOF
 				}
 			}
-			if err != nil {
-				detachOnce.Do(func() { close(detached) })
-				_ = conn.Close()
-				return
-			}
+			return w.send(Message{Type: MessageInput, Data: chunk})
+		})
+		if err != nil {
+			detachOnce.Do(func() { close(detached) })
+			_ = conn.Close()
 		}
 	}()
 

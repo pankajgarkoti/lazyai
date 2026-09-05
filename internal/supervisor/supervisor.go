@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -145,14 +144,7 @@ func Serve(cfg Config) error {
 	if err != nil {
 		return err
 	}
-	defer func() {
-		select {
-		case <-term.Exited:
-			_ = term.Close()
-		default:
-			forceStopTree(term)
-		}
-	}()
+	defer term.Close()
 
 	store, err := notes.Open(cfg.DBPath)
 	if err != nil {
@@ -216,7 +208,6 @@ func Serve(cfg Config) error {
 	}
 
 	stopping := false
-	var forceStop <-chan time.Time
 	for {
 		select {
 		case conn := <-accepts:
@@ -253,17 +244,17 @@ func Serve(cfg Config) error {
 				}
 			case MessageStop:
 				if !stopping {
+					// Discover and terminate descendants while their parent is
+					// still alive; waiting for graceful exit can orphan them.
+					if err := term.Close(); err != nil {
+						_ = event.client.send(Message{Type: MessageError, Error: err.Error()})
+						continue
+					}
 					stopping = true
-					_ = store.MarkRuntimeSession(cfg.ProjectRoot, "stopped")
-					_ = term.Signal(syscall.SIGTERM)
-					forceStop = time.After(2 * time.Second)
 				}
 			}
 		case <-term.Dirty:
 			snapshot(active)
-		case <-forceStop:
-			forceStopTree(term)
-			forceStop = nil
 		case <-term.Exited:
 			status := "exited"
 			if stopping {
@@ -315,64 +306,4 @@ func LockHeld(socket string) bool {
 	}
 	_ = syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
 	return false
-}
-
-func descendantPIDs(root int) []int {
-	out, err := exec.Command("/bin/ps", "-axo", "pid=,ppid=").Output()
-	if err != nil {
-		return nil
-	}
-	children := make(map[int][]int)
-	for _, line := range strings.Split(string(out), "\n") {
-		fields := strings.Fields(line)
-		if len(fields) != 2 {
-			continue
-		}
-		pid, pidErr := strconv.Atoi(fields[0])
-		ppid, ppidErr := strconv.Atoi(fields[1])
-		if pidErr == nil && ppidErr == nil {
-			children[ppid] = append(children[ppid], pid)
-		}
-	}
-	var descendants []int
-	var walk func(int)
-	walk = func(pid int) {
-		for _, child := range children[pid] {
-			walk(child)
-			descendants = append(descendants, child)
-		}
-	}
-	walk(root)
-	return descendants
-}
-
-func forceStopTree(term *terminal.Terminal) {
-	root := term.PID()
-	// Signal through os.Process first: once Wait has completed, Signal returns
-	// os.ErrProcessDone rather than targeting a potentially reused numeric PID.
-	if err := term.Signal(syscall.SIGSTOP); err != nil {
-		return
-	}
-	seen := make(map[int]struct{})
-	// Freeze each newly observed generation and continue until the process tree
-	// converges. Frozen ancestors cannot create another unseen generation.
-	for {
-		newChildren := 0
-		for _, pid := range descendantPIDs(root) {
-			if _, ok := seen[pid]; ok {
-				continue
-			}
-			seen[pid] = struct{}{}
-			newChildren++
-			_ = syscall.Kill(pid, syscall.SIGSTOP)
-		}
-		if newChildren == 0 {
-			break
-		}
-	}
-	for pid := range seen {
-		_ = syscall.Kill(-pid, syscall.SIGKILL)
-		_ = syscall.Kill(pid, syscall.SIGKILL)
-	}
-	_ = term.Close()
 }

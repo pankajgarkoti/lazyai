@@ -29,22 +29,42 @@ configuration, providers, sessions, skills and plugins all apply; LazyAI only
 adds one extra config directory (`OPENCODE_CONFIG_DIR`) containing its plugin
 and skill, materialized under your user cache dir.
 
-LazyAI keeps one session alive per project after the terminal client exits.
-Run the same command again from the repository or any linked worktree to
-reattach to its existing OpenCode processes and screen.
+## Sessions
+
+LazyAI keeps one session alive per project when its terminal client detaches.
+Starting LazyAI again from the repository or any linked worktree reattaches to
+the same OpenCode processes and restores their current screen.
 
 ```sh
 lazyai                         # start or reattach this project
 lazyai list                    # show known running, stopped, exited, and stale sessions
 lazyai stop --dir ~/code/app   # terminate one project's session
+lazyai --help                  # show launch options and session controls
 ```
 
-`Ctrl+Q` detaches without stopping OpenCode, shells, hooks, or workstreams. A
-new attachment takes over from an older client. Git worktrees share the session
-for their canonical main checkout; independent clones and non-Git directories
-remain isolated. A machine reboot or supervisor failure loses live PTYs and is
-reported as `stale` by `lazyai list`; LazyAI does not pretend to reconstruct
-those processes.
+`Ctrl+Q` detaches from any screen without stopping OpenCode, shells, hooks, or
+workstreams. Closing the terminal client has the same persistence behavior. A
+new attachment takes over from an older client. Launch options apply when a
+session starts; reattaching keeps the already-running session and its original
+options. Reattaching with `--worktree` does not create an unused branch or
+worktree; use `w` inside the session to open another workstream. Stop the session
+first when you need to relaunch with different options.
+
+Session and workstream controls have different scopes:
+
+| Control | Scope |
+|---|---|
+| `Ctrl+Q` | Detach this terminal client; leave the project session running |
+| `a` | Archive the current workstream; stop its processes but keep its worktree |
+| `x x` | Close the current workstream and its processes |
+| `lazyai stop --dir DIR` | Stop the entire project session and every workstream |
+
+Git worktrees share the session for their canonical main checkout; independent
+clones and non-Git directories remain isolated. `lazyai list` reports `running`
+for an attachable session, `stopped` after an explicit stop, `exited` when the
+supervised LazyAI process ends, and `stale` when the recorded supervisor is no
+longer reachable. A reboot or supervisor failure loses live PTYs; LazyAI reports
+that state instead of pretending to reconstruct those processes.
 
 ## Modes and keys
 

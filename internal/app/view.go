@@ -176,9 +176,9 @@ func (m Model) renderHint() string {
 	case m.help:
 		hints = []kv{{"?", "close"}, {"esc", "close"}}
 	case m.mode == ModeInteractive && m.focus == FocusContent:
-		hints = []kv{{"esc", "normal"}, {"jk", "esc→opencode"}, {"ctrl+space", "workstreams"}, {"ctrl+z", "zoom"}, {"ctrl+q", "detach"}}
+		hints = []kv{{"esc", "normal"}, {"jk", "esc→opencode"}, {"ctrl+space", "workstreams"}, {"ctrl+z", "zoom"}}
 	case m.mode == ModeTerminal && m.focus == FocusContent:
-		hints = []kv{{"esc", "normal"}, {"jk", "esc→shell"}, {"ctrl+space", "workstreams"}, {"ctrl+z", "zoom"}, {"ctrl+q", "detach"}}
+		hints = []kv{{"esc", "normal"}, {"jk", "esc→shell"}, {"ctrl+space", "workstreams"}, {"ctrl+z", "zoom"}}
 	case m.normal():
 		hints = []kv{{"w", "worktree"}, {"a", "archive"}, {"?", "help"}}
 	case m.mode == ModeDiff && m.focus == FocusSidebar:
@@ -192,6 +192,7 @@ func (m Model) renderHint() string {
 	case m.mode == ModeShow:
 		hints = []kv{{"j/k", "scroll"}, {"[ ]", "location"}, {"r", "reference"}, {"esc", "list"}}
 	}
+	hints = append(hints, kv{"ctrl+q", "detach"})
 	parts := make([]string, 0, len(hints))
 	for _, h := range hints {
 		parts = append(parts, theme.StatusKey.Render(h.k)+theme.StatusDim.Render(":"+h.v))
@@ -547,7 +548,8 @@ func (m Model) changedCount() int {
 // renderHelp draws the keymap as one diagnostic-style float.
 func renderHelp(w int) []string {
 	sections := []struct{ title, keys string }{
-		{"interactive / terminal (the pane owns the keys)", "esc: normal (pane remains visible, no input) · jk: send ESC into the pane · ctrl+space: workstream leader · ctrl+z: zoom · ctrl+q: detach"},
+		{"session lifecycle (available on every screen)", "ctrl+q: detach and keep all work running · reattach: run lazyai for the project · lazyai list: inspect sessions · lazyai stop --dir DIR: stop a project and all workstreams"},
+		{"interactive / terminal (the pane owns the keys)", "esc: normal (pane remains visible, no input) · jk: send ESC into the pane · ctrl+space: workstream leader · ctrl+z: zoom"},
 		{"normal (pane focused out)", "i: opencode · t: terminal · d: diff (when there are changes) · s: show (when the agent pointed at code) · j/k: pick a file for d · enter: back into the pane"},
 		{"workstreams (one OpenCode per git worktree)", "h / l previous / next · w: new or wake a dormant worktree · a: archive (dormant: stops OpenCode, keeps the worktree) · x x: close · from a pane: ctrl+space then h / l / 1-9 / ctrl+space (last) / w / a / x"},
 		{"sidebar", "j/k: select · h/l: workstream · 1-9: jump · enter: focus content · esc: normal · tab: focus"},

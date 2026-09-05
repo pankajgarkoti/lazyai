@@ -56,6 +56,11 @@ func realpath(p string) string {
 
 // Inspect describes the repository containing dir.
 func Inspect(dir string) (Info, error) {
+	dir, err := filepath.Abs(dir)
+	if err != nil {
+		return Info{}, err
+	}
+	dir = realpath(dir)
 	top, err := run(dir, "rev-parse", "--show-toplevel")
 	if err != nil {
 		return Info{}, err
@@ -69,7 +74,7 @@ func Inspect(dir string) (Info, error) {
 		return Info{}, err
 	}
 	if !filepath.IsAbs(common) {
-		common = filepath.Join(top, common)
+		common = filepath.Join(dir, common)
 	}
 	info := Info{Top: realpath(top)}
 	info.Linked = realpath(gitDir) != realpath(common)

@@ -3,6 +3,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -26,6 +27,9 @@ import (
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return
+		}
 		fmt.Fprintln(os.Stderr, "lazyai:", err)
 		os.Exit(1)
 	}
@@ -48,7 +52,13 @@ func parseLaunchOptions(args []string) (launchOptions, error) {
 	fs.StringVar(&opts.worktree, "worktree", "", "run in a git worktree for this branch under <repo>/"+git.WorktreeDir+" (created if needed)")
 	fs.StringVar(&opts.base, "base", "", "start point for a new --worktree branch (default: HEAD)")
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "usage: lazyai [--dir DIR] [--worktree BRANCH [--base REF]] [--opencode BIN] [-- opencode args...]\n")
+		fmt.Fprintln(os.Stderr, "Usage:")
+		fmt.Fprintln(os.Stderr, "  lazyai [options] [-- opencode args...]  Start or reattach a project session")
+		fmt.Fprintln(os.Stderr, "  lazyai list                            List known project sessions")
+		fmt.Fprintln(os.Stderr, "  lazyai stop [--dir DIR]                Stop a project session and all its workstreams")
+		fmt.Fprintln(os.Stderr, "\nSession controls:")
+		fmt.Fprintln(os.Stderr, "  Ctrl+Q detaches without stopping work. Run lazyai for the project to reattach.")
+		fmt.Fprintln(os.Stderr, "\nOptions:")
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {

@@ -1175,37 +1175,37 @@ func TestHintsTrackEveryScreen(t *testing.T) {
 	want := map[string][]string{}
 	got := map[string]string{}
 	got["interactive"] = hintsOf(h)
-	want["interactive"] = []string{"esc:normal", "jk"}
+	want["interactive"] = []string{"esc:normal", "jk", "ctrl+q:detach"}
 	h.update(EscapeMsg{})
 	got["normal"] = hintsOf(h)
-	want["normal"] = []string{"w:worktree", "?:help"}
+	want["normal"] = []string{"w:worktree", "?:help", "ctrl+q:detach"}
 	h.key("d")
 	got["diff-sidebar"] = hintsOf(h)
-	want["diff-sidebar"] = []string{"j/k:file", "enter", "r:reference", "esc:normal"}
+	want["diff-sidebar"] = []string{"j/k:file", "enter", "r:reference", "esc:normal", "ctrl+q:detach"}
 	h.key("enter")
 	got["diff-content"] = hintsOf(h)
-	want["diff-content"] = []string{"[ ]:hunk", "esc:files"}
+	want["diff-content"] = []string{"[ ]:hunk", "esc:files", "ctrl+q:detach"}
 	h.key("esc")
 	h.key("s")
 	got["show-sidebar"] = hintsOf(h)
-	want["show-sidebar"] = []string{"j/k:location", "[ ]", "r:reference", "esc:normal"}
+	want["show-sidebar"] = []string{"j/k:location", "[ ]", "r:reference", "esc:normal", "ctrl+q:detach"}
 	h.key("enter")
 	got["show-content"] = hintsOf(h)
-	want["show-content"] = []string{"j/k:scroll", "[ ]:location", "esc:list"}
+	want["show-content"] = []string{"j/k:scroll", "[ ]:location", "esc:list", "ctrl+q:detach"}
 	h.key("esc")
 	h.key("?")
 	got["help"] = hintsOf(h)
-	want["help"] = []string{"?", "close"}
+	want["help"] = []string{"?", "close", "ctrl+q:detach"}
 	h.key("?")
 	gitRepo(t, h.root)
 	h.m.refreshRepo()
 	h.key("w")
 	got["prompt"] = hintsOf(h)
-	want["prompt"] = nil
+	want["prompt"] = []string{"ctrl+q:detach"}
 	h.key("esc")
 	h.update(LeaderMsg{})
 	got["leader"] = hintsOf(h)
-	want["leader"] = []string{"1-9", "w", "x"}
+	want["leader"] = []string{"1-9", "w", "x", "ctrl+q:detach"}
 	for screen, needles := range want {
 		for _, n := range needles {
 			if !strings.Contains(got[screen], n) {
@@ -1221,6 +1221,15 @@ func TestHintsTrackEveryScreen(t *testing.T) {
 	// Nothing about hunks in show, nothing about locations in diff.
 	if strings.Contains(got["show-content"], "hunk") || strings.Contains(got["diff-content"], "location") {
 		t.Errorf("cross-talk: show=%q diff=%q", got["show-content"], got["diff-content"])
+	}
+}
+
+func TestHelpExplainsSessionLifecycle(t *testing.T) {
+	help := strings.Join(renderHelp(220), "\n")
+	for _, want := range []string{"session lifecycle", "ctrl+q: detach", "lazyai list", "lazyai stop --dir"} {
+		if !strings.Contains(help, want) {
+			t.Errorf("help missing %q: %q", want, help)
+		}
 	}
 }
 
@@ -1386,7 +1395,7 @@ func TestNewWorktreePromptAsksForBaseBranch(t *testing.T) {
 		t.Fatalf("should ask for the base: prompting=%v stage=%v", h.m.prompting, h.m.promptStage)
 	}
 	view := stripANSI(h.m.View())
-	if !strings.Contains(view, "m main") || !strings.Contains(view, "c main (current)") || hintsOf(h) != "" {
+	if !strings.Contains(view, "m main") || !strings.Contains(view, "c main (current)") || hintsOf(h) != "ctrl+q:detach" {
 		t.Fatalf("base prompt missing options:\n%s\n%s", view, hintsOf(h))
 	}
 	h.key("m")
