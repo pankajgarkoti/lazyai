@@ -17,11 +17,12 @@ import (
 // Terminal is a child process attached to a PTY whose output is fed into a
 // VT emulator. All exported methods are safe for concurrent use.
 type Terminal struct {
-	mu   sync.Mutex
-	cmd  *exec.Cmd
-	pty  *os.File
-	emu  *vt.Emulator
-	w, h int
+	closeMu sync.Mutex
+	mu      sync.Mutex
+	cmd     *exec.Cmd
+	pty     *os.File
+	emu     *vt.Emulator
+	w, h    int
 
 	// Dirty is signalled (non-blocking, capacity 1) whenever the screen may
 	// have changed.
@@ -225,18 +226,6 @@ func (t *Terminal) Size() (int, int) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.w, t.h
-}
-
-// Close terminates the child if still running and releases the PTY.
-func (t *Terminal) Close() error {
-	select {
-	case <-t.Exited:
-	default:
-		if t.cmd.Process != nil {
-			_ = t.cmd.Process.Kill()
-		}
-	}
-	return t.pty.Close()
 }
 
 // Snapshot renders the current screen as rows of ANSI-styled text. Each row is

@@ -121,3 +121,29 @@ func TestBranchesLists(t *testing.T) {
 		t.Fatalf("branches %v %v", got, err)
 	}
 }
+
+func TestInspectNestedRelativeAndSymlinkDirectories(t *testing.T) {
+	repo := initRepo(t)
+	nested := filepath.Join(repo, "src", "pkg")
+	if err := os.MkdirAll(nested, 0755); err != nil {
+		t.Fatal(err)
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	relative, err := filepath.Rel(cwd, nested)
+	if err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(t.TempDir(), "nested")
+	if err := os.Symlink(nested, link); err != nil {
+		t.Fatal(err)
+	}
+	for _, dir := range []string{nested, relative, link} {
+		info, err := Inspect(dir)
+		if err != nil || info.Main != repo || info.Top != repo || info.Linked {
+			t.Errorf("Inspect(%q)=%+v,%v", dir, info, err)
+		}
+	}
+}

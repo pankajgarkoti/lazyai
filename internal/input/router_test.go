@@ -2,6 +2,8 @@ package input
 
 import (
 	"bytes"
+	"io"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -205,5 +207,61 @@ func TestLeaderCapturesNextKeyForHostAndChildIsSwitchable(t *testing.T) {
 	r.route([]byte{0x00})
 	if leaders != 1 || host.String() != "2\x00" {
 		t.Fatalf("host mode leader: leaders=%d host=%q", leaders, host.String())
+	}
+}
+
+func TestPastedControlSequencesDoNotTriggerHostCommands(t *testing.T) {
+	child, host := &sink{}, &sink{}
+	r := New(nil, child, host)
+	commands := 0
+	r.OnQuit = func() { commands++ }
+	r.OnEscape = func() { commands++ }
+	r.OnZoom = func() { commands++ }
+	r.OnLeader = func() { commands++ }
+	chunks := []string{"\x1b", "[20", "0~", "jk", "\x11", "\x1a", "\x00", "\x1b[<0;4;5M", "\x1b[20", "1~"}
+	r.src = &chunkReader{chunks: append([]string(nil), chunks...)}
+	_ = r.Run()
+	if got, want := child.String(), strings.Join(chunks, ""); got != want || commands != 0 || host.Len() != 0 {
+		t.Fatalf("paste changed: child=%q host=%q commands=%d; want %q", got, host.String(), commands, want)
+	}
+}
+
+// chunkReader deliberately fragments paste markers and contents between reads.
+type chunkReader struct{ chunks []string }
+
+func (r *chunkReader) Read(b []byte) (int, error) {
+	if len(r.chunks) == 0 {
+		return 0, io.EOF
+	}
+	n := copy(b, r.chunks[0])
+	r.chunks[0] = r.chunks[0][n:]
+	if r.chunks[0] == "" {
+		r.chunks = r.chunks[1:]
+	}
+	return n, nil
+}
+
+func TestRunStillDeliversLoneEscapeWithoutAnotherRead(t *testing.T) {
+	reader, writer := io.Pipe()
+	defer reader.Close()
+	defer writer.Close()
+	r := New(reader, &sink{}, &sink{})
+	escaped := make(chan struct{}, 1)
+	r.OnEscape = func() { escaped <- struct{}{} }
+	done := make(chan error, 1)
+	go func() { done <- r.Run() }()
+	if _, err := writer.Write([]byte("\x1b")); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-escaped:
+	case <-time.After(time.Second):
+		t.Fatal("lone Escape was held indefinitely")
+	}
+	writer.Close()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("router did not exit")
 	}
 }

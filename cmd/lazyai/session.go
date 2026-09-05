@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"sync"
 	"syscall"
 	"text/tabwriter"
 	"time"
@@ -27,10 +28,7 @@ func run(args []string) error {
 		case "__supervise":
 			return runSupervisor(args[1:])
 		case "list":
-			if len(args) != 1 {
-				return errors.New("usage: lazyai list")
-			}
-			return listSessions()
+			return listSessions(args[1:])
 		case "stop":
 			return stopSession(args[1:])
 		}
@@ -43,7 +41,11 @@ func attachSession(args []string) error {
 	if err != nil {
 		return err
 	}
-	root, err := prepareRoot(opts)
+	if !term.IsTerminal(int(os.Stdin.Fd())) || !term.IsTerminal(int(os.Stdout.Fd())) {
+		return fmt.Errorf("lazyai must run in an interactive terminal")
+	}
+	// Resolve identity without applying launch-only worktree mutations.
+	root, err := prepareRoot(launchOptions{dir: opts.dir})
 	if err != nil {
 		return err
 	}
@@ -58,6 +60,10 @@ func attachSession(args []string) error {
 	socket := supervisor.SocketPath(project)
 	conn, err := net.Dial("unix", socket)
 	if err != nil {
+		root, err = prepareRoot(opts)
+		if err != nil {
+			return err
+		}
 		if err := startSupervisor(project, root, socket, dbPath, opts, args); err != nil {
 			return err
 		}
@@ -67,10 +73,6 @@ func attachSession(args []string) error {
 		}
 	}
 
-	if !term.IsTerminal(int(os.Stdin.Fd())) || !term.IsTerminal(int(os.Stdout.Fd())) {
-		_ = conn.Close()
-		return fmt.Errorf("lazyai must run in an interactive terminal")
-	}
 	cols, rows, err := term.GetSize(int(os.Stdout.Fd()))
 	if err != nil {
 		_ = conn.Close()
@@ -95,14 +97,24 @@ func attachSession(args []string) error {
 		_ = conn.Close()
 		return err
 	}
-	fmt.Fprint(os.Stdout, "\x1b[?1049h\x1b[?25l")
+	restoreTerminal := sync.OnceFunc(func() {
+		fmt.Fprint(os.Stdout, "\x1b[?2004l\x1b[?1002l\x1b[?1006l\x1b[?25h\x1b[?1049l")
+		_ = term.Restore(int(os.Stdin.Fd()), oldState)
+	})
+	defer restoreTerminal()
+	fmt.Fprint(os.Stdout, "\x1b[?1049h\x1b[?25l\x1b[?1002h\x1b[?1006h\x1b[?2004h")
 
 	resizes := make(chan supervisor.Size, 1)
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, syscall.SIGWINCH)
 	defer signal.Stop(signals)
 	go func() {
-		for range signals {
+		for {
+			select {
+			case <-clientDone:
+				return
+			case <-signals:
+			}
 			w, h, sizeErr := term.GetSize(int(os.Stdout.Fd()))
 			if sizeErr != nil {
 				continue
@@ -115,8 +127,7 @@ func attachSession(args []string) error {
 	}()
 	detached, attachErr := supervisor.Attach(conn, os.Stdin, os.Stdout, cols, rows, resizes)
 	close(clientDone)
-	fmt.Fprint(os.Stdout, "\x1b[?25h\x1b[?1049l")
-	_ = term.Restore(int(os.Stdin.Fd()), oldState)
+	restoreTerminal()
 	select {
 	case <-interrupted:
 		return nil
@@ -202,7 +213,19 @@ func waitForSupervisor(socket string, timeout time.Duration) (net.Conn, error) {
 	return nil, fmt.Errorf("supervisor did not start: %w (see %s.log)", lastErr, socket)
 }
 
-func listSessions() error {
+func listSessions(args []string) error {
+	fs := flag.NewFlagSet("lazyai list", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	fs.Usage = func() {
+		fmt.Fprintln(os.Stderr, "Usage: lazyai list")
+		fmt.Fprintln(os.Stderr, "\nList known project sessions and their current lifecycle status.")
+	}
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 {
+		return errors.New("usage: lazyai list")
+	}
 	dbPath, err := notes.DefaultPath()
 	if err != nil {
 		return err
@@ -231,7 +254,14 @@ func listSessions() error {
 
 func stopSession(args []string) error {
 	fs := flag.NewFlagSet("lazyai stop", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
 	dir := fs.String("dir", ".", "project directory to stop")
+	fs.Usage = func() {
+		fmt.Fprintln(os.Stderr, "Usage: lazyai stop [--dir DIR]")
+		fmt.Fprintln(os.Stderr, "\nStop the project session and all workstreams, including their OpenCode and shell processes.")
+		fmt.Fprintln(os.Stderr, "\nOptions:")
+		fs.PrintDefaults()
+	}
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -266,7 +296,11 @@ func stopSession(args []string) error {
 				if session.Socket == supervisor.SocketPath(project) {
 					_ = os.Remove(session.Socket)
 				}
-				return store.MarkRuntimeSession(project, "stopped")
+				if err := store.MarkRuntimeSession(project, "stopped"); err != nil {
+					return err
+				}
+				fmt.Fprintf(os.Stdout, "lazyai: stopped LazyAI session for %s\n", project)
+				return nil
 			}
 		}
 		return fmt.Errorf("no LazyAI session for %s", project)
@@ -279,6 +313,7 @@ func stopSession(args []string) error {
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		if !socketLive(socket) {
+			fmt.Fprintf(os.Stdout, "lazyai: stopped LazyAI session for %s\n", project)
 			return nil
 		}
 		time.Sleep(25 * time.Millisecond)

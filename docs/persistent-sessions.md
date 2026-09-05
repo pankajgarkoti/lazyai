@@ -2,7 +2,7 @@
 
 ## Outcome
 
-Quitting the foreground LazyAI client detaches from the current project without
+Detaching the foreground LazyAI client leaves the current project running without
 stopping OpenCode, shells, hooks, or workstreams. Starting LazyAI for that
 project later reattaches to the same live terminal and processes.
 
@@ -38,8 +38,22 @@ existing LazyAI TUI
 ```
 
 The supervisor sends complete terminal snapshots rather than replaying an
-unbounded output log. Input, mouse sequences, paste bytes, and resize events go
-to the outer PTY. Disconnecting only drops the socket client.
+unbounded output log. The foreground client enables mouse cell-motion, SGR mouse encoding, and
+bracketed paste on each attachment, and restores the terminal on detach,
+takeover, signal, or error. Input, mouse sequences, paste bytes, and resize
+events go to the outer PTY. Both input layers preserve bracketed-paste framing
+across reads and bypass shortcuts inside pasted text. Disconnecting only drops
+the socket client.
+
+Launch rejects noninteractive terminals before creating any runtime or worktree
+artifacts. Project discovery happens before applying launch-only options, so
+reattachment cannot create an unused worktree.
+
+Explicit stop and workstream close/archive use the terminal owner's process-tree
+cleanup. It freezes ancestors while discovering descendants and terminates the
+tree before releasing the PTY. Stop does not wait for graceful parent exit,
+which could orphan workers before they can be found. Discovery errors are
+returned instead of silently treating an incomplete census as an empty tree.
 
 ## Identity and storage
 
@@ -68,7 +82,8 @@ can access the socket directory and socket.
 ## Failure behavior
 
 - Client crash or terminal closure: supervisor and children continue.
-- Supervisor startup failure: client reports the captured startup error.
+- Supervisor startup failure: client reports the failure and the path to the
+  supervisor log containing startup diagnostics.
 - Existing but unreachable socket: mark the registry row stale, remove the
   stale socket, and start a new supervisor for an explicit attach invocation.
 - Supervisor crash: child PTYs are lost and the registry row becomes stale.
@@ -114,3 +129,17 @@ The supervisor is the default entry path. `lazyai __direct` is an internal
 escape hatch that runs the previous foreground architecture and supports fast
 rollback during development. Removing the runtime session row and socket does
 not affect existing worktree or Show history.
+
+## Reproducible terminal drive
+
+Build with `make build`, then run:
+
+```sh
+python3 scripts/test-sessions-tmux.py --binary ./bin/lazyai --real-opencode
+```
+ The drive uses a dedicated tmux server
+and disposable Git projects. It checks terminal modes, literal multiline paste,
+mouse input, resize, same-process detach/reattach, takeover, signal cleanup,
+worktree options and nested process cleanup. With `--real-opencode`, it also
+checks that real OpenCode displays a prompt and retains an unsent typed draft
+across reattachment; it does not submit a model request.
