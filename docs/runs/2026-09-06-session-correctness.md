@@ -26,11 +26,11 @@ The source of truth is the current implementation, docs/persistent-sessions.md, 
 - [x] Noninteractive launch produces no runtime/worktree/database artifacts.
 - [x] Existing suite and race checks pass.
 - [x] tmux drive: start, type, paste, mouse, resize, detach, detached progress, reattach, takeover, stop, clean terminal modes; real OpenCode startup and reattach.
-- [ ] Verified revision committed and PR opened targeting main, or publication blocked with concrete evidence and a ready PR body.
+- [x] Verified implementation committed as 21368f6 and published to PR #1 targeting main: https://github.com/pankajgarkoti/lazyai/pull/1.
 
 ## Evidence and status
 
-Phase: implementation and local verification complete; publish the verified revision next.
+Phase: complete. Implementation, regression/race verification, tmux drive and PR publication delivered. Stop before merge.
 Original review: isolated tests failed for nested identity, lost terminal input modes and a descendant surviving graceful parent exit. Existing race suite passed with sandbox-external socket/PTY access.
 Publication: Git FETCH_HEAD identifies pankajgarkoti/lazyai. Refreshed remote main is 54f768f, matching the local base. Existing PR #1 targets main from this branch; update it using the repository owner account without changing the active CLI account.
 
@@ -49,3 +49,5 @@ Publication: Git FETCH_HEAD identifies pankajgarkoti/lazyai. Refreshed remote ma
 ## Verification limits
 
 macOS was exercised; Linux process cleanup was not driven here. Process-tree cleanup owns descendants present at close/stop; it cannot retroactively recover workers deliberately daemonized and reparented before discovery. Reboot and supervisor-crash recovery remain stale-session behavior, as documented. Real model execution was not needed to verify the lifecycle boundary and was not exercised.
+
+Publication confirmed: PR #1 is OPEN, base main, with implementation commit 21368f64e186b0611915b6017ecfe81132fbf8ca. The final documentation commit only records this result.
