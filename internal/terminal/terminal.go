@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"sync"
 
+	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/vt"
 	"github.com/creack/pty"
 )
@@ -39,6 +40,23 @@ type Options struct {
 	Env     []string
 	Width   int
 	Height  int
+}
+
+// MouseAction identifies a mouse interaction sent to the child terminal.
+type MouseAction int
+
+const (
+	MousePress MouseAction = iota
+	MouseRelease
+	MouseMotion
+)
+
+// Mouse is a pane-local mouse event. Coordinates are zero-based.
+type Mouse struct {
+	X, Y             int
+	Button           vt.MouseButton
+	Action           MouseAction
+	Shift, Alt, Ctrl bool
 }
 
 // Start launches the child in a PTY of the requested size.
@@ -132,6 +150,34 @@ func (t *Terminal) Err() error {
 // Write sends raw input bytes to the child.
 func (t *Terminal) Write(p []byte) (int, error) {
 	return t.pty.Write(p)
+}
+
+// SendMouse forwards a mouse event using the mode and encoding requested by
+// the child. It is ignored when the child has not enabled mouse reporting.
+func (t *Terminal) SendMouse(event Mouse) {
+	mod := uv.KeyMod(0)
+	if event.Shift {
+		mod |= vt.ModShift
+	}
+	if event.Alt {
+		mod |= vt.ModAlt
+	}
+	if event.Ctrl {
+		mod |= vt.ModCtrl
+	}
+	mouse := uv.Mouse{X: event.X, Y: event.Y, Button: event.Button, Mod: mod}
+	var msg uv.MouseEvent = uv.MouseClickEvent(mouse)
+	switch {
+	case event.Action == MouseRelease:
+		msg = uv.MouseReleaseEvent(mouse)
+	case event.Action == MouseMotion:
+		msg = uv.MouseMotionEvent(mouse)
+	case event.Button >= vt.MouseWheelUp && event.Button <= vt.MouseWheelRight:
+		msg = uv.MouseWheelEvent(mouse)
+	}
+	t.mu.Lock()
+	t.emu.SendMouse(msg)
+	t.mu.Unlock()
 }
 
 // Paste sends text wrapped in bracketed-paste markers so the child treats it

@@ -138,23 +138,26 @@ type stream struct {
 	showPending bool // a show set arrived while this stream was in the background
 
 	// Diff state
-	fileSel  int
-	diffPath string
-	diffRes  diff.Result
-	diffView viewport.Model
-	diffOld  []highlight.Line // highlighted baseline, indexed by old line-1
-	diffNew  []highlight.Line // highlighted current file, indexed by new line-1
-	diffPad  int              // rows inserted before hunks (reason float)
+	fileSel    int
+	fileOffset int
+	diffPath   string
+	diffRes    diff.Result
+	diffView   viewport.Model
+	diffOld    []highlight.Line // highlighted baseline, indexed by old line-1
+	diffNew    []highlight.Line // highlighted current file, indexed by new line-1
+	diffPad    int              // rows inserted before hunks (reason float)
 
 	// Show state
 	showSet    *show.Set
 	showSel    int
+	showOffset int
 	showLines  []string
 	showHL     []highlight.Line
 	showErr    error
 	showView   viewport.Model
 	showSeq    uint64
 	loadedShow string // abs path currently loaded into showLines
+	showTarget int    // selected location used for the current viewport position
 }
 
 // Model is the root application model.
@@ -319,6 +322,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.leaderKey(msg)
 		}
 		return m.handleKey(msg)
+
+	case tea.MouseMsg:
+		m.notice = ""
+		return m.handleMouse(msg)
 	}
 	return m, nil
 }
@@ -359,6 +366,7 @@ func (m *Model) relayout() {
 	}
 	m.refreshDiff()
 	m.refreshShow(true)
+	m.ensureSidebarSelectionVisible()
 }
 
 // applyHook routes a plugin event to the workstream that sent it.
@@ -412,7 +420,9 @@ func (m *Model) applyHook(ev hooks.Event) {
 			}
 		}
 		s.showSel = 0
+		s.showOffset = 0
 		s.loadedShow = ""
+		s.showTarget = -1
 		for _, loc := range set.Locations {
 			s.ledger.MarkShown(loc.Abs, loc.Note)
 		}
@@ -538,6 +548,7 @@ func (m *Model) clampFileSel() {
 	if m.fileSel < 0 {
 		m.fileSel = 0
 	}
+	m.ensureSidebarSelectionVisible()
 }
 
 func (m Model) selectedEntry() (activity.Entry, bool) {
@@ -629,6 +640,7 @@ func (m *Model) refreshShow(force bool) {
 	}
 	w, h := m.rightInner()
 	reload := force || m.loadedShow != loc.Abs
+	recenter := reload || m.showTarget != m.showSel
 	if reload {
 		m.showLines, m.showErr = show.Source(loc.Abs)
 		m.showHL = highlight.File(loc.Path, strings.Join(m.showLines, "\n"))
@@ -639,6 +651,10 @@ func (m *Model) refreshShow(force bool) {
 		total = len(m.showSet.Locations)
 	}
 	m.showView.SetContent(renderSource(m.showHL, m.showErr, loc, m.showSel+1, total, w))
+	m.showTarget = m.showSel
+	if !recenter {
+		return
+	}
 	// Center like `zz` in Vim. Content row 0 is the file header, so source
 	// line N sits at row N.
 	target := loc.Line - h/2

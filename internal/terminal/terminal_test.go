@@ -1,11 +1,14 @@
 package terminal
 
 import (
-	"github.com/charmbracelet/x/ansi"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/charmbracelet/x/ansi"
+	"github.com/charmbracelet/x/vt"
 )
 
 func waitFor(t *testing.T, term *Terminal, want string) []string {
@@ -79,6 +82,34 @@ func TestResizePropagatesToChild(t *testing.T) {
 	waitFor(t, term, "8 60")
 	if w, h := term.Size(); w != 60 || h != 8 {
 		t.Fatalf("size = %dx%d", w, h)
+	}
+}
+
+func TestSendMouseUsesChildModeAndLocalCoordinates(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "mouse-event")
+	term, err := Start(Options{
+		Command: "/bin/sh",
+		Args:    []string{"-c", `stty raw -echo; printf '\033[?1000h\033[?1006hREADY\r\n'; dd bs=1 count=9 of="$1" 2>/dev/null`, "mouse-child", out},
+		Env:     append(os.Environ(), "TERM=xterm-256color"), Width: 40, Height: 5,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer term.Close()
+
+	waitFor(t, term, "READY")
+	term.SendMouse(Mouse{X: 3, Y: 5, Button: vt.MouseLeft, Action: MousePress})
+	select {
+	case <-term.Exited:
+	case <-time.After(5 * time.Second):
+		t.Fatal("child did not receive mouse event")
+	}
+	got, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "\x1b[<0;4;6M"; string(got) != want {
+		t.Fatalf("mouse bytes = %q, want %q", got, want)
 	}
 }
 

@@ -66,6 +66,29 @@ func TestHostModeRoutesEverythingToHost(t *testing.T) {
 	}
 }
 
+func TestForwardingRoutesMouseEventsToHostForHitTesting(t *testing.T) {
+	child, host := &sink{}, &sink{}
+	r := New(nil, child, host)
+	r.ChordTimeout = 0
+
+	r.route([]byte("\x1b[<0;40;8M"))
+	if got := host.String(); got != "\x1b[<0;40;8M" {
+		t.Fatalf("mouse event should reach host, got %q", got)
+	}
+	if child.Len() != 0 {
+		t.Fatalf("child received unadjusted mouse coordinates: %q", child.Bytes())
+	}
+
+	host.Reset()
+	r.route([]byte("a\x1b[<64;40;8Mb"))
+	if got := child.String(); got != "ab" {
+		t.Fatalf("keys surrounding mouse event = %q", got)
+	}
+	if got := host.String(); got != "\x1b[<64;40;8M" {
+		t.Fatalf("batched mouse event = %q", got)
+	}
+}
+
 func TestJKChordSendsEscapeToChild(t *testing.T) {
 	child := &sink{}
 	r := New(nil, child, &sink{})

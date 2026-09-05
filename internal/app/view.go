@@ -255,10 +255,11 @@ func (m Model) renderFileList(w, h int) string {
 		b.WriteString(theme.Dim.Render("  nothing touched yet"))
 	}
 	active := m.mode == ModeDiff || m.normal()
-	for i, e := range entries {
-		if i >= h-1 {
+	for i := m.fileOffset; i < len(entries); i++ {
+		if i-m.fileOffset >= h-1 {
 			break
 		}
+		e := entries[i]
 		mark := e.Marker()
 		icon := theme.FileIcon(e.Path)
 		name := ansi.Truncate(e.Path, w-5, "…")
@@ -295,10 +296,11 @@ func (m Model) renderShowList(w, h int) string {
 		b.WriteString(theme.Dim.Render("  nothing shown yet"))
 		return b.String()
 	}
-	for i, loc := range m.showSet.Locations {
-		if i >= h-1 {
+	for i := m.showOffset; i < len(m.showSet.Locations); i++ {
+		if i-m.showOffset >= h-1 {
 			break
 		}
+		loc := m.showSet.Locations[i]
 		// The note itself is shown inline next to the code (diagnostic
 		// float), so the list row is the location: "n  path:line[:col]".
 		idx := fmt.Sprintf("%d", i+1)
