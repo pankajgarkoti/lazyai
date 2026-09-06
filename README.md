@@ -17,7 +17,25 @@ locations with a note attached.
 └─────────────────────────────────────────────────────────────┘
 ```
 
+## Install
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/pankajgarkoti/lazyai/main/install.sh | sh
+```
+
+Installs the latest release for macOS or Linux (arm64 / amd64) to `~/.local/bin`
+after verifying its SHA-256 against the release's `SHA256SUMS`. Set
+`LAZYAI_VERSION=v0.2.0` to pin a version or `LAZYAI_INSTALL_DIR=/usr/local/bin`
+to change the destination. Release archives are also downloadable from the
+GitHub releases page.
+
 ## Run
+
+```sh
+lazyai --dir /path/to/project [-- opencode args...]
+```
+
+Or from source:
 
 ```sh
 go build -o bin/lazyai ./cmd/lazyai
