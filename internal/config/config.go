@@ -1,13 +1,14 @@
-// Package config reads the optional per-project LazyAI configuration at
+// Package config reads the per-project LazyAI configuration at
 // <repo>/.lazyai/config.yaml.
 //
-// Absence of the file preserves every default. Malformed or unsupported
+// Absence of the file creates editable defaults. Malformed or unsupported
 // configuration is reported as an error and results in a Config with strict
 // mode disabled and no contract: LazyAI must never silently enforce a
 // different contract than the one the user wrote.
 package config
 
 import (
+	_ "embed"
 	"errors"
 	"fmt"
 	"os"
@@ -17,6 +18,9 @@ import (
 
 	"gopkg.in/yaml.v3"
 )
+
+//go:embed default.yaml
+var defaultYAML []byte
 
 const (
 	// Dir is the project-relative configuration directory.
@@ -63,21 +67,24 @@ type Config struct {
 	Interactive Interactive `yaml:"interactive"`
 	// Loaded is true when a file was found and validated.
 	Loaded bool `yaml:"-"`
-	// Path is where the file was read from ("" when absent).
+	// Path is where the file was read from.
 	Path string `yaml:"-"`
 }
 
 // Path returns the configuration file path for a project root.
 func Path(root string) string { return filepath.Join(root, Dir, File) }
 
-// Load reads and validates the project configuration. A missing file returns
-// a zero Config and no error. Unknown top-level keys are returned as warnings
+// Load creates defaults if absent, then reads and validates the configuration.
+// Creation errors return a zero Config. Unknown top-level keys are returned as warnings
 // so newer shared configuration keeps working on older LazyAI versions.
 func Load(root string) (Config, []string, error) {
 	path := Path(root)
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return Config{}, nil, nil
+		if err := createDefault(path); err != nil {
+			return Config{}, nil, fmt.Errorf("create %s: %w", path, err)
+		}
+		data, err = os.ReadFile(path)
 	}
 	if err != nil {
 		return Config{}, nil, err
@@ -88,6 +95,38 @@ func Load(root string) (Config, []string, error) {
 		return cfg, warnings, fmt.Errorf("%s: %w", path, err)
 	}
 	return cfg, warnings, nil
+}
+
+func createDefault(path string) error {
+	// A dangling symlink is still user-owned configuration, not an absent file.
+	if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(dir, ".config-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	defer tmp.Close()
+	if _, err := tmp.Write(defaultYAML); err != nil {
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	// Publish only complete bytes, without replacing a concurrent creator's file.
+	// Rename can overwrite; exclusive-create followed by Write exposes partial YAML.
+	if err := os.Link(tmp.Name(), path); err != nil && !errors.Is(err, os.ErrExist) {
+		return err
+	}
+	return nil
 }
 
 // Parse validates configuration bytes. On error the returned Config has

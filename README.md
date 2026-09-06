@@ -47,14 +47,19 @@ configuration, providers, sessions, skills and plugins all apply; LazyAI only
 adds one extra config directory (`OPENCODE_CONFIG_DIR`) containing its plugin
 and skill, materialized under your user cache dir.
 
+No setup is needed: LazyAI creates a commented project config on first start,
+with strict contracts disabled. See [Configuration](#configuration) to customize it.
+
 ## Versioning and release builds
 
-Current version: **0.3.0** (0.2: workstream identities, agent-driven
+Current version: **0.4.0** (0.2: workstream identities, agent-driven
 workstream setup, strict contract entry, accurate activity indicators; 0.2.1
 replaces the strip detail row with the `K` details float; 0.2.2 makes `j`/`k`
 browse workstreams in Normal and adds `Ctrl+Space` `q` to quit a session;
 0.2.3 adds `R` to restore the previous session's workstreams; 0.3.0 replaces
-the `jk` chord with `Ctrl+]` for a real Escape, a keymap change).
+the `jk` chord with `Ctrl+]` for a real Escape, a keymap change; 0.4.0
+creates editable project defaults with 13 opt-in workflow contracts and keeps
+drafts separate for each template).
 LazyAI uses Semantic Versioning (`MAJOR.MINOR.PATCH`). During `0.x`
 development, new features and breaking changes increment the minor version;
 compatible fixes increment the patch version. Version `1.0.0` will mark a stable
@@ -253,11 +258,89 @@ request order and your current workstream keeps focus; the tool call returns
 per-branch results (created / opened / failed). Requests are scoped to the
 repository of the workstream whose agent made them.
 
-## Strict contracts (`.lazyai/config.yaml`)
+## Configuration
 
-Optionally, a project can force instructions to the agent into a structured
-shape. Create `<repo>/.lazyai/config.yaml` in the main checkout (it is shared
-by every worktree):
+LazyAI works out of the box: by default you type directly into OpenCode.
+When the project config is missing, LazyAI creates `.lazyai/config.yaml` with
+every supported option written out, explanatory comments, and 13 ready-to-edit
+contract templates. **Strict mode is off**, so none of the templates changes
+how you type until you enable it.
+
+### Where configuration lives
+
+- **LazyAI settings:** `<repo>/.lazyai/config.yaml` in the repository's main
+  checkout. All linked worktrees use that same file, not their own copies.
+  Outside a Git repository, LazyAI looks in the directory you launch it for.
+- **Shipped config:** [`internal/config/default.yaml`](internal/config/default.yaml),
+  embedded in the binary. Parsing and validation live in
+  [`internal/config/config.go`](internal/config/config.go).
+  There is currently no global LazyAI config file or global/project merge.
+- **OpenCode settings:** your existing OpenCode configuration still applies.
+  LazyAI's YAML config is separate; it does not configure models, providers,
+  permissions, or OpenCode plugins. The generated cache directory mentioned
+  above is for LazyAI's integration, not your editable LazyAI settings.
+
+### Start small
+
+Start LazyAI, then edit `.lazyai/config.yaml` in the main checkout. The generated
+file starts with `version: 1`, `strict: false`, and `default_contract: task`,
+followed by the templates. Existing files are **never overwritten or upgraded**,
+even if they are empty or invalid. To add newly shipped templates to an older
+config, copy the ones you want from the [shipped config](internal/config/default.yaml).
+
+Prefer less configuration? You can replace the generated file with this minimal
+version and keep the default, direct-to-OpenCode behavior:
+
+```yaml
+version: 1
+interactive:
+  strict: false
+```
+
+LazyAI currently uses this file for structured instruction entry, called
+**strict contracts**. It is not yet a general settings file for themes or
+keybindings. You can commit it to share the same templates with your team,
+or keep it local using Git's ignore rules.
+
+### Choose a workflow
+
+The bundled forms follow skill-based engineering workflows. They ask for the
+inputs that distinguish each phase, rather than making you fill out the same
+large checklist for every task. Short identifiers and environments use
+single-line fields; outcomes, evidence, and authority use multiline fields.
+
+| Contract name | When to use it and what to bring |
+|---|---|
+| `task` | General work: desired outcome, acceptance criteria, optional scope and boundaries |
+| `system_mapping` | Understand a subsystem: target and questions about its flow or ownership |
+| `environment_forensics` | Retrieve evidence: environment, locator, time window, question, and access limits |
+| `behavior_review` | Find recurring friction: bounded session corpus, population, review question, and access limits |
+| `incident_triage` | Sort reports into actionable incidents: original reports and expected behavior |
+| `incident_rca` | Diagnose a validated incident: failure evidence, expected behavior, and experiment boundaries |
+| `blast_radius` | Assess side effects: target, proposed change, and behavior that must remain stable |
+| `change_design` | Design before coding: intended behavior, acceptance criteria, optional RCA and constraints |
+| `implementation` | Deliver an approved change: outcome, acceptance, mutation authority, optional reproduction and checks |
+| `verification` | Independently challenge a change: revision, environment, criteria, and report-only boundaries |
+| `release` | Ship verified work: revision, environment, verification evidence, explicit authority, and recovery plan |
+| `incident_response` | Restore a degraded system: environment, impact, evidence, containment authority, and recovery criteria |
+| `outcome_review` | Evaluate results: work boundary, promised outcome, observed evidence, optional rework costs |
+
+To use one, set `interactive.strict: true` and change
+`interactive.default_contract` to its name, such as `incident_rca`, then press
+`Ctrl+Space` followed by `c` to reload. One template is selected for the project
+at a time; there is no per-template enabled flag or in-form template picker.
+
+The templates are portable prompts, not installed skills or automatic permission
+grants. Only the contract name and your non-empty answers reach the agent, not
+the YAML comments or field labels. Put actual scope, authorized actions, and
+stopping conditions in your answers. Required fields check for a non-blank answer;
+they do not validate whether an action is safe or authorized.
+
+### Try a structured task form
+
+A contract is a template for the instructions you send to the agent. If you
+prefer a small form that prompts you for the outcome and acceptance criteria,
+enable `strict` in the generated config. This standalone example also works:
 
 ```yaml
 version: 1
@@ -291,11 +374,40 @@ paste (`contract: task`, then every non-empty field in template order as a
 literal block) followed by Enter, and then focuses OpenCode as usual. The
 bundled skill tells the agent to treat every field as binding.
 
+Drafts are kept separately for each template in each workstream. Switching
+templates does not reuse another template's answers; switching back restores
+its draft. Successful submission clears only that template's draft. Review
+restored answers, especially authority, before sending them again.
+
+You can rename the template and add or remove fields to fit your workflow:
+
+| Setting | What it does |
+|---|---|
+| `version` | Required; currently `1` |
+| `interactive.strict` | Defaults to `false`; `true` enables the form and requires at least one contract |
+| `interactive.default_contract` | Name of the contract to use; must exist in `contracts` if set. If omitted, LazyAI selects the first name alphabetically |
+| `interactive.contracts` | Named templates, each with an optional `title` and a non-empty `fields` list |
+| Field `key` / `label` | Required, non-blank output key and display label; keys must be unique within a template and cannot contain spaces, tabs, newlines, `:` or `#` |
+| Field `type` | `text` for one line (the default), or `multiline` |
+| Field `required` | Defaults to `false`; `true` prevents submission when the value is blank |
+
+### Reload or switch back
+
+After editing the file, press `Ctrl+Space` then `c` to reload it without
+restarting the session. Configuration is also read when a new session starts;
+reattaching to an existing session is not a restart.
+
 `Ctrl+Space` `f` toggles **freestyle** for the current workstream only (the
 mode block shows `INTERACTIVE·FREE` / `NORMAL·FREE`); it resets when that
-workstream is restarted and never edits the file. `Ctrl+Space` `c` reloads the
-configuration. Without the file nothing changes. A malformed or unsupported
-file (bad YAML, `version` ≠ 1, duplicate field keys, unknown field types,
+workstream is restarted and never edits the file. To turn strict mode off for
+the whole project, set `strict: false`, then reload. If the file is missing at
+startup or reload, LazyAI recreates the shipped defaults with strict mode off.
+Back up custom templates before deleting a config you want to reset.
+
+A creation or read failure (for example, an unwritable project directory) is
+shown as a persistent `config error`; strict entry stays off. Creation uses
+an atomic, non-overwriting hard link, so the filesystem must support hard links.
+A malformed or unsupported file (bad YAML, `version` ≠ 1, duplicate field keys, unknown field types,
 missing labels, undefined `default_contract`) disables strict entry and shows
 a persistent `config error` in the status bar rather than enforcing anything
 else; unknown top-level keys only warn. Field types are `text` (one line) and
@@ -382,7 +494,7 @@ internal/terminal     child process in a PTY + VT emulator + screen renderer
 internal/input        raw byte router: child vs host, Ctrl+] / Ctrl+Space / Ctrl+Z / Ctrl+Q host keys
 internal/hooks        loopback HTTP receiver for plugin events (one token per workstream); setup requests get a reply
 internal/integration  embedded OpenCode plugin (show_locations, setup_workstreams) + skill, materialized on start
-internal/config       optional .lazyai/config.yaml: strict contract templates, validation, deterministic rendering
+internal/config       creates/loads .lazyai/config.yaml: default templates, validation, deterministic rendering
 internal/activity     file ledger (read/modified/shown, reasons, baselines)
 internal/diff         unified diff + hunk parsing
 internal/show         quickfix-style location set validation and source loading
