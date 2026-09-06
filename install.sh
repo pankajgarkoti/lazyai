@@ -20,6 +20,9 @@ need() { command -v "$1" >/dev/null 2>&1 || fail "$1 is required"; }
 need curl
 need tar
 
+# Bounded, retried downloads so a stalled CDN connection fails instead of hanging.
+fetch() { curl -fsSL --connect-timeout 15 --max-time 120 --retry 3 --retry-delay 2 "$@"; }
+
 case "$(uname -s)" in
   Darwin) os=darwin ;;
   Linux) os=linux ;;
@@ -32,7 +35,7 @@ case "$(uname -m)" in
 esac
 
 if [ -z "$version" ]; then
-  version="$(curl -fsSL "https://api.github.com/repos/$repo/releases/latest" | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n1)"
+  version="$(fetch "https://api.github.com/repos/$repo/releases/latest" | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n1)"
   [ -n "$version" ] || fail "could not determine the latest release"
 fi
 case "$version" in v*) ;; *) version="v$version" ;; esac
@@ -43,8 +46,8 @@ tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
 printf 'lazyai install: downloading %s\n' "$name.tar.gz"
-curl -fsSL -o "$tmp/$name.tar.gz" "$base/$name.tar.gz" || fail "no archive for $version/$os/$arch"
-curl -fsSL -o "$tmp/SHA256SUMS" "$base/SHA256SUMS" || fail "release $version has no SHA256SUMS"
+fetch -o "$tmp/$name.tar.gz" "$base/$name.tar.gz" || fail "no archive for $version/$os/$arch"
+fetch -o "$tmp/SHA256SUMS" "$base/SHA256SUMS" || fail "release $version has no SHA256SUMS"
 
 want="$(grep " $name.tar.gz\$" "$tmp/SHA256SUMS" | awk '{print $1}')"
 [ -n "$want" ] || fail "SHA256SUMS has no entry for $name.tar.gz"
