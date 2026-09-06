@@ -152,11 +152,11 @@ type stream struct {
 	focus Focus
 
 	pluginOK  bool
-	active    map[string]bool   // in-flight tool calls by call id
-	attention bool              // OpenCode is waiting on the user (permission/question)
-	unseen    bool              // background output / show set not yet looked at
-	freestyle bool              // strict contracts bypassed for this stream
-	draft     map[string]string // last contract values typed for this stream
+	active    map[string]bool              // in-flight tool calls by call id
+	attention bool                         // OpenCode is waiting on the user (permission/question)
+	unseen    bool                         // background output / show set not yet looked at
+	freestyle bool                         // strict contracts bypassed for this stream
+	draft     map[string]map[string]string // contract name -> field values for this stream
 
 	// Diff state
 	fileSel    int

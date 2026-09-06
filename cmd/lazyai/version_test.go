@@ -9,7 +9,7 @@ func TestVersionWithoutTerminal(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if output != "lazyai "+version+"\n" || version != "0.3.0" {
+			if output != "lazyai "+version+"\n" || version != "0.4.0" {
 				t.Fatalf("version output = %q", output)
 			}
 		})

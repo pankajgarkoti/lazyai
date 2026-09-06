@@ -165,7 +165,10 @@ func (m *Model) openContract() {
 		m.notice = "no contract template defined"
 		return
 	}
-	m.contract = newContractForm(c, m.draft)
+	if m.draft == nil {
+		m.draft = make(map[string]map[string]string)
+	}
+	m.contract = newContractForm(c, m.draft[c.Name])
 	w, h := m.rightInner()
 	m.contract.layout(w, h)
 	m.mode = ModeInteractive
@@ -178,7 +181,7 @@ func (m *Model) openContract() {
 // closeContract hides the form, keeping the draft, and returns to normal.
 func (m *Model) closeContract() {
 	if m.contract != nil {
-		m.draft = m.contract.values()
+		m.draft[m.contract.contract.Name] = m.contract.values()
 	}
 	m.contract = nil
 	m.syncKeyboard()
@@ -192,7 +195,7 @@ func (m *Model) submitContract() {
 		return
 	}
 	values := f.values()
-	m.draft = values
+	m.draft[f.contract.Name] = values
 	missing := f.contract.Missing(values)
 	f.invalid = map[string]bool{}
 	for _, k := range missing {
@@ -217,7 +220,7 @@ func (m *Model) submitContract() {
 		m.notice = "send failed: " + err.Error()
 		return
 	}
-	m.draft = nil // sent; the next form starts blank
+	delete(m.draft, f.contract.Name) // sent; only this template starts blank next time
 	m.contract = nil
 	m.enter(ModeInteractive)
 }

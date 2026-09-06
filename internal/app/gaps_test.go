@@ -504,8 +504,10 @@ interactive:
 func strictHarness(t *testing.T, yaml string) *harness {
 	t.Helper()
 	root := t.TempDir()
-	os.MkdirAll(filepath.Join(root, config.Dir), 0o755)
-	os.WriteFile(config.Path(root), []byte(yaml), 0o644)
+	if yaml != "" {
+		os.MkdirAll(filepath.Join(root, config.Dir), 0o755)
+		os.WriteFile(config.Path(root), []byte(yaml), 0o644)
+	}
 	h := &harness{root: root}
 	m, err := New(Config{
 		Root:       root,
@@ -564,7 +566,7 @@ func TestStrictModeGatesEveryEntryThroughTheContractForm(t *testing.T) {
 		h.key(string(r))
 	}
 	h.key("esc")
-	if h.m.contract != nil || !h.m.normal() || h.m.draft["outcome"] != "ship it" {
+	if h.m.contract != nil || !h.m.normal() || h.m.draft["task"]["outcome"] != "ship it" {
 		t.Fatalf("esc: contract=%v normal=%v draft=%v", h.m.contract != nil, h.m.normal(), h.m.draft)
 	}
 	if s := stripANSI(h.m.renderStatus()); !strings.Contains(s, "i:contract") {
@@ -616,7 +618,7 @@ func TestStrictModeGatesEveryEntryThroughTheContractForm(t *testing.T) {
 	if strings.Contains(screen, "notes:") {
 		t.Fatal("empty optional field must be omitted")
 	}
-	if h.m.draft != nil {
+	if h.m.draft["task"] != nil {
 		t.Fatal("a sent contract clears the draft")
 	}
 	// Freestyle for this stream only: i focuses OpenCode directly, the mode
@@ -650,7 +652,7 @@ func TestStrictModeGatesEveryEntryThroughTheContractForm(t *testing.T) {
 	}
 }
 
-func TestInvalidOrMissingConfigNeverEnforcesStrictMode(t *testing.T) {
+func TestInvalidConfigNeverEnforcesStrictMode(t *testing.T) {
 	h := strictHarness(t, "version: 1\ninteractive: [\n")
 	if h.m.contract != nil || h.m.configErr == "" || h.m.strictActive() {
 		t.Fatalf("malformed config: contract=%v err=%q", h.m.contract != nil, h.m.configErr)
@@ -683,10 +685,73 @@ func TestInvalidOrMissingConfigNeverEnforcesStrictMode(t *testing.T) {
 	if h.m.configErr != "" || !strings.Contains(h.m.configWarn, "something_new") {
 		t.Fatalf("warn: err=%q warn=%q", h.m.configErr, h.m.configWarn)
 	}
-	// No file at all: plain defaults.
-	plain := newHarness(t)
-	if plain.m.strictActive() || plain.m.configErr != "" {
-		t.Fatal("no config -> no strict, no error")
+}
+
+func TestDefaultConfigStartupAndReload(t *testing.T) {
+	h := strictHarness(t, "")
+	for range 2 {
+		data, err := os.ReadFile(config.Path(h.root))
+		if err != nil || !h.m.project.Loaded || h.m.strictActive() || h.m.contract != nil || h.m.configErr != "" {
+			t.Fatalf("defaults should be created without a contract gate: err=%v project=%+v configErr=%q", err, h.m.project, h.m.configErr)
+		}
+		h.update(EscapeMsg{})
+		h.key("i")
+		if h.m.contract != nil || h.m.focus != FocusContent || !h.forward[len(h.forward)-1] {
+			t.Fatal("default templates must not intercept agent input")
+		}
+		// Opt in to a different shipped template via the real reload action.
+		body := strings.Replace(string(data), "strict: false", "strict: true", 1)
+		body = strings.Replace(body, "default_contract: task", "default_contract: implementation", 1)
+		if err := os.WriteFile(config.Path(h.root), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		h.update(EscapeMsg{})
+		h.update(LeaderMsg{})
+		h.key("c")
+		h.key("i")
+		if h.m.contract == nil || !h.m.strictActive() {
+			t.Fatal("opting in should open the shipped contract")
+		}
+		if c, ok := h.m.project.Contract(); !ok || c.Name != "implementation" {
+			t.Fatalf("selected contract=%+v", c)
+		}
+		h.key("esc")
+		if err := os.Remove(config.Path(h.root)); err != nil {
+			t.Fatal(err)
+		}
+		h.update(LeaderMsg{})
+		h.key("c")
+		if !strings.Contains(h.m.notice, "reloaded") {
+			t.Fatalf("reload notice=%q", h.m.notice)
+		}
+	}
+}
+
+func TestConfigCreationFailureDisablesPreviouslyStrictMode(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root bypasses directory permissions")
+	}
+	h := strictHarness(t, strictYAML)
+	if !h.m.strictActive() {
+		t.Fatal("strict mode must be active before the creation failure")
+	}
+	h.key("esc")
+	if err := os.Remove(config.Path(h.root)); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(h.root, config.Dir)
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(dir, 0o700) })
+	h.update(LeaderMsg{})
+	h.key("c")
+	if h.m.strictActive() || h.m.project.Loaded || h.m.configErr == "" || !strings.Contains(stripANSI(h.m.renderStatus()), "config:") {
+		t.Fatalf("creation failure not surfaced: project=%+v error=%q", h.m.project, h.m.configErr)
+	}
+	h.m.notice = "" // The persistent error remains after the reload notice clears.
+	if !strings.Contains(stripANSI(h.m.renderStatus()), "config error") {
+		t.Fatalf("persistent config error not visible: %q", stripANSI(h.m.renderStatus()))
 	}
 }
 
