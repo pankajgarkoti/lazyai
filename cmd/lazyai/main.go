@@ -17,6 +17,7 @@ import (
 	"golang.org/x/term"
 
 	"lazyai/internal/app"
+	"lazyai/internal/config"
 	"lazyai/internal/git"
 	"lazyai/internal/hooks"
 	"lazyai/internal/input"
@@ -59,6 +60,8 @@ func parseLaunchOptions(args []string) (launchOptions, error) {
 		fmt.Fprintln(os.Stderr, "  lazyai stop [--dir DIR]                Stop a project session and all its workstreams")
 		fmt.Fprintln(os.Stderr, "\nSession controls:")
 		fmt.Fprintln(os.Stderr, "  Ctrl+Q detaches without stopping work. Run lazyai for the project to reattach.")
+		fmt.Fprintln(os.Stderr, "\nProject configuration:")
+		fmt.Fprintln(os.Stderr, "  <repo>/"+config.Dir+"/"+config.File+" (optional) enables strict contract entry; see README.")
 		fmt.Fprintln(os.Stderr, "\nOptions:")
 		fs.PrintDefaults()
 	}
@@ -238,6 +241,12 @@ func runDirect(args []string) error {
 	}
 	defer store.Close()
 
+	// Optional per-project configuration lives in the main checkout so every
+	// worktree of the repository shares one set of contracts.
+	configRoot := absDir
+	if info, err := git.Inspect(absDir); err == nil && info.Main != "" {
+		configRoot = info.Main
+	}
 	model, err := app.New(app.Config{
 		Root:        absDir,
 		Width:       cols,
@@ -247,6 +256,7 @@ func runDirect(args []string) error {
 		Notes:       store,
 		SetForward:  router.SetForward,
 		SetChild:    router.SetChild,
+		LoadConfig:  func() (config.Config, []string, error) { return config.Load(configRoot) },
 	})
 	if err != nil {
 		return err

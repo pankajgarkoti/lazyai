@@ -10,12 +10,14 @@ package app
 import (
 	"os"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 
 	"lazyai/internal/activity"
+	"lazyai/internal/config"
 	"lazyai/internal/diff"
 	"lazyai/internal/git"
 	"lazyai/internal/highlight"
@@ -83,7 +85,16 @@ type (
 	// LeaderMsg is Ctrl+Space pressed while the child owned the keyboard; the
 	// next key arrives as a KeyMsg and is interpreted as a leader command.
 	LeaderMsg struct{}
+	// TickMsg advances the working spinner while any stream has an active
+	// tool call. Ticks stop by themselves when nothing is working.
+	TickMsg struct{}
 )
+
+const spinnerInterval = 120 * time.Millisecond
+
+func tickCmd() tea.Cmd {
+	return tea.Tick(spinnerInterval, func(time.Time) tea.Msg { return TickMsg{} })
+}
 
 // Launcher starts an OpenCode child rooted at dir with the given screen size
 // and returns it together with the hook token that identifies its events.
@@ -98,10 +109,15 @@ type ShellLauncher func(dir, token string, w, h int) (*terminal.Terminal, error)
 type NotesStore interface {
 	Record(root, branch, sessionID string, set show.Set) error
 	UpsertWorktree(repo, branch, path string, linked bool) error
+	SetWorktreeIdentity(repo, branch, nickname, description string) error
 	SetDormant(repo, branch string, dormant bool) error
 	Worktrees(repo string) ([]notes.Worktree, error)
 	SetState(repo, key, value string) error
 }
+
+// ConfigLoader reads the project configuration (.lazyai/config.yaml). It is
+// called at startup and on the explicit reload command.
+type ConfigLoader func() (config.Config, []string, error)
 
 // Config wires the model to the process.
 type Config struct {
@@ -112,30 +128,35 @@ type Config struct {
 	Notes         NotesStore       // nil disables persistence
 	SetForward    func(bool)       // route raw keys to the child (true) or to LazyAI
 	SetChild      func(input.Sink) // retarget raw keys to another child
+	LoadConfig    ConfigLoader     // nil: no project configuration
 }
 
-// needsYou reports whether the strip should flag the stream with "!".
-func (s *stream) needsYou() bool { return s.attention || s.showPending }
+// working reports whether any tool call is in flight on the stream.
+func (s *stream) working() bool { return len(s.active) > 0 }
 
 // stream is one workstream: a worktree, its OpenCode child and all per-stream
 // UI state. Model embeds a pointer to the current one so view and key code
 // address it as m.mode, m.ledger, ...
 type stream struct {
-	name   string // branch (or directory name) shown in the strip
-	root   string
-	token  string
-	term   *terminal.Terminal
-	shell  *terminal.Terminal // t mode, started lazily
-	ledger *activity.Ledger
-	repo   git.Info // zero when root is not a git checkout
+	name        string // branch (or directory name): the identity git knows
+	nickname    string // what the user calls it; "" falls back to name
+	description string // optional reminder of what the workstream is for
+	root        string
+	token       string
+	term        *terminal.Terminal
+	shell       *terminal.Terminal // t mode, started lazily
+	ledger      *activity.Ledger
+	repo        git.Info // zero when root is not a git checkout
 
 	mode  Mode
 	focus Focus
 
-	pluginOK    bool
-	busy        bool // a tool call is in flight
-	attention   bool // OpenCode is waiting on the user (permission/question)
-	showPending bool // a show set arrived while this stream was in the background
+	pluginOK  bool
+	active    map[string]bool   // in-flight tool calls by call id
+	attention bool              // OpenCode is waiting on the user (permission/question)
+	unseen    bool              // background output / show set not yet looked at
+	freestyle bool              // strict contracts bypassed for this stream
+	draft     map[string]string // last contract values typed for this stream
 
 	// Diff state
 	fileSel    int
@@ -174,14 +195,27 @@ type Model struct {
 	help        bool // keymap float shown instead of the content pane
 	confirmQuit bool // quit confirmation owns input until y / n / Esc
 
-	prompting   bool // worktree prompt open
+	prompting   bool // workstream form open
 	promptStage promptStage
-	prompt      textinput.Model
-	matches     []candidate // live fuzzy matches for the typed name
-	matchSel    int         // selected match, -1 = none (use the typed text)
+	prompt      textinput.Model // branch
+	nick        textinput.Model // nickname (identity stage)
+	desc        textinput.Model // description (identity stage)
+	field       int             // focused identity field: 0 nickname, 1 description
+	editing     bool            // identity stage edits the current stream instead of creating
+	matches     []candidate     // live fuzzy matches for the typed name
+	matchSel    int             // selected match, -1 = none (use the typed text)
 
 	leader       bool   // Ctrl+Space pressed; next key is a workstream command
 	pendingClose string // stream name awaiting a second "x"
+
+	project    config.Config // validated .lazyai/config.yaml (zero when absent/invalid)
+	configErr  string        // persistent configuration error shown in the status bar
+	configWarn string
+	contract   *contractForm // open strict-entry form
+	setup      *setupRequest // agent setup awaiting confirmation
+
+	spin    int  // spinner frame
+	ticking bool // a TickMsg is scheduled
 
 	width, height int
 	sidebarWidth  int
@@ -194,23 +228,61 @@ func New(cfg Config) (Model, error) {
 	m := Model{
 		cfg:          cfg,
 		sidebarWidth: 34,
-		prompt:       newPrompt(),
+		prompt:       newPrompt("branch name", 120),
+		nick:         newPrompt("nickname", nicknameMax),
+		desc:         newPrompt("what is this workstream for? (optional)", descriptionMax),
 		width:        cfg.Width,
 		height:       cfg.Height,
 	}
+	m.reloadConfig()
 	if _, err := m.addStream(cfg.Root, ""); err != nil {
 		return Model{}, err
 	}
 	return m, nil
 }
 
-func newPrompt() textinput.Model {
+func newPrompt(placeholder string, limit int) textinput.Model {
 	ti := textinput.New()
 	ti.Prompt = ""
-	ti.Placeholder = "branch name"
-	ti.CharLimit = 120
+	ti.Placeholder = placeholder
+	ti.CharLimit = limit
 	ti.Width = 40
 	return ti
+}
+
+// reloadConfig (re)reads the project configuration. Failure disables strict
+// entry and leaves a persistent error; it never keeps a stale contract.
+func (m *Model) reloadConfig() {
+	m.project, m.configErr, m.configWarn = config.Config{}, "", ""
+	if m.cfg.LoadConfig == nil {
+		return
+	}
+	cfg, warnings, err := m.cfg.LoadConfig()
+	if err != nil {
+		// The status bar has little room: drop the project prefix from paths.
+		m.configErr = strings.ReplaceAll(err.Error(), m.cfg.Root+string(os.PathSeparator), "")
+		return
+	}
+	m.project = cfg
+	if len(warnings) > 0 {
+		m.configWarn = strings.Join(warnings, "; ")
+	}
+}
+
+// strictActive reports whether instruction entry for the current stream goes
+// through a contract form.
+func (m Model) strictActive() bool {
+	return m.stream != nil && m.project.Interactive.Strict && m.configErr == "" && !m.freestyle
+}
+
+// focusAgent is the single way into typing at OpenCode: in strict mode it
+// opens the contract form, otherwise it hands the pane the keyboard.
+func (m *Model) focusAgent() {
+	if m.strictActive() {
+		m.openContract()
+		return
+	}
+	m.enter(ModeInteractive)
 }
 
 func (m Model) Init() tea.Cmd { return nil }
@@ -272,6 +344,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.leader = true
 		return m, nil
 
+	case TickMsg:
+		for _, s := range m.streams {
+			if s.working() {
+				m.spin++
+				return m, tickCmd()
+			}
+		}
+		m.ticking = false
+		return m, nil
+
 	case ScreenDirtyMsg:
 		return m, nil
 
@@ -291,6 +373,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.closeQuit()
 			return m, nil
 		}
+		if m.setup != nil {
+			return m.setupKey("esc")
+		}
+		if m.contract != nil {
+			m.closeContract()
+			return m, nil
+		}
 		if m.prompting {
 			m.closePrompt()
 			return m, nil
@@ -304,8 +393,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case HookMsg:
-		m.applyHook(msg.Event)
-		return m, nil
+		cmd := m.applyHook(msg.Event)
+		return m, cmd
 
 	case tea.KeyMsg:
 		m.notice = ""
@@ -315,6 +404,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case msg.String() == "ctrl+q":
 			m.openQuit()
 			return m, nil
+		case m.setup != nil:
+			return m.setupKey(msg.String())
+		case m.contract != nil:
+			return m.contractKey(msg)
 		case m.prompting:
 			return m.promptKey(msg)
 		case m.leader:
@@ -369,26 +462,49 @@ func (m *Model) relayout() {
 	m.ensureSidebarSelectionVisible()
 }
 
-// applyHook routes a plugin event to the workstream that sent it.
-func (m *Model) applyHook(ev hooks.Event) {
+// callID identifies a tool call across its before/after events. Old plugins
+// send no id; the tool name then stands in so a pair still cancels out.
+func callID(ev hooks.Event) string {
+	if ev.CallID != "" {
+		return ev.CallID
+	}
+	return "tool:" + ev.Tool
+}
+
+// applyHook routes a plugin event to the workstream that sent it. The
+// returned command starts the spinner when work begins.
+func (m *Model) applyHook(ev hooks.Event) tea.Cmd {
 	s := m.streamByToken(ev.Token)
 	if s == nil {
-		return
+		if ev.Reply != nil {
+			ev.Reply <- hooks.Reply{Err: errUnknownWorkstream}
+		}
+		return nil
 	}
 	// Operate on that stream as if it were current, then restore.
 	saved := m.stream
 	m.stream = s
 	defer func() { m.stream = saved }()
 	isCur := s == saved
+	var cmd tea.Cmd
 
 	switch ev.Type {
 	case "hello":
 		s.pluginOK = true
 	case "tool.before":
-		s.busy = true
+		if s.active == nil {
+			s.active = map[string]bool{}
+		}
+		s.active[callID(ev)] = true
 		s.attention = false
-	case "tool.after", "idle":
-		s.busy = false
+		if !m.ticking {
+			m.ticking = true
+			cmd = tickCmd()
+		}
+	case "tool.after":
+		delete(s.active, callID(ev))
+	case "idle":
+		s.active = nil // clears calls whose after-event was lost
 	case "attention":
 		s.attention = true
 	case "file.before":
@@ -403,6 +519,11 @@ func (m *Model) applyHook(ev hooks.Event) {
 		if s.loadedShow != "" && sameFile(s.loadedShow, ev.Path) {
 			s.loadedShow = ""
 		}
+		if !isCur {
+			s.unseen = true
+		}
+	case "setup":
+		m.applySetup(ev)
 	case "show":
 		set, err := show.Validate(s.root, ev.Title, toInputs(ev.Locations))
 		if err != nil {
@@ -431,13 +552,14 @@ func (m *Model) applyHook(ev hooks.Event) {
 		} else {
 			// Flag it so the strip shows there is something to look at; s
 			// opens the set once you switch there.
-			s.showPending = true
+			s.unseen = true
 		}
 	}
 	m.clampFileSel()
 	m.refreshDiff()
 	m.refreshShow(false)
 	m.refreshRepo()
+	return cmd
 }
 
 func sameFile(a, b string) bool {
@@ -509,8 +631,17 @@ func (m *Model) syncKeyboard() {
 		m.cfg.SetChild(m.liveTerm())
 	}
 	if m.cfg.SetForward != nil {
-		m.cfg.SetForward(!m.prompting && !m.confirmQuit && m.mode.live() && m.focus == FocusContent)
+		m.cfg.SetForward(!m.prompting && !m.confirmQuit && m.contract == nil && m.setup == nil && m.mode.live() && m.focus == FocusContent)
 	}
+}
+
+// displayName is what the strip shows: the nickname, falling back to the
+// branch.
+func (s *stream) displayName() string {
+	if s.nickname != "" {
+		return s.nickname
+	}
+	return s.name
 }
 
 // shellExited clears a finished shell and drops its workstream to normal.
@@ -699,5 +830,5 @@ func (m *Model) reference() {
 		m.notice = "paste failed: " + err.Error()
 		return
 	}
-	m.enter(ModeInteractive)
+	m.focusAgent()
 }
