@@ -17,11 +17,12 @@ import (
 // Terminal is a child process attached to a PTY whose output is fed into a
 // VT emulator. All exported methods are safe for concurrent use.
 type Terminal struct {
-	mu   sync.Mutex
-	cmd  *exec.Cmd
-	pty  *os.File
-	emu  *vt.Emulator
-	w, h int
+	closeMu sync.Mutex
+	mu      sync.Mutex
+	cmd     *exec.Cmd
+	pty     *os.File
+	emu     *vt.Emulator
+	w, h    int
 
 	// Dirty is signalled (non-blocking, capacity 1) whenever the screen may
 	// have changed.
@@ -152,6 +153,22 @@ func (t *Terminal) Write(p []byte) (int, error) {
 	return t.pty.Write(p)
 }
 
+// Signal sends a process signal to the terminal's direct child.
+func (t *Terminal) Signal(sig os.Signal) error {
+	if t.cmd.Process == nil {
+		return os.ErrProcessDone
+	}
+	return t.cmd.Process.Signal(sig)
+}
+
+// PID returns the direct child's process ID.
+func (t *Terminal) PID() int {
+	if t.cmd.Process == nil {
+		return 0
+	}
+	return t.cmd.Process.Pid
+}
+
 // SendMouse forwards a mouse event using the mode and encoding requested by
 // the child. It is ignored when the child has not enabled mouse reporting.
 func (t *Terminal) SendMouse(event Mouse) {
@@ -209,18 +226,6 @@ func (t *Terminal) Size() (int, int) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.w, t.h
-}
-
-// Close terminates the child if still running and releases the PTY.
-func (t *Terminal) Close() error {
-	select {
-	case <-t.Exited:
-	default:
-		if t.cmd.Process != nil {
-			_ = t.cmd.Process.Kill()
-		}
-	}
-	return t.pty.Close()
 }
 
 // Snapshot renders the current screen as rows of ANSI-styled text. Each row is

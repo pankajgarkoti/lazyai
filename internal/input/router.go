@@ -160,16 +160,19 @@ func (r *Router) Forwarding() bool { return r.forward.Load() }
 
 // Run blocks, routing input until the source returns an error.
 func (r *Router) Run() error {
-	buf := make([]byte, 4096)
-	for {
-		n, err := r.src.Read(buf)
-		if n > 0 {
-			r.route(buf[:n])
-		}
-		if err != nil {
+	return ReadFramed(r.src, func(b []byte, pasted bool) error {
+		if pasted {
+			r.flushPending()
+			if r.forward.Load() && !r.captureNext.Load() {
+				_, err := r.childSink().Write(b)
+				return err
+			}
+			_, err := r.host.Write(b)
 			return err
 		}
-	}
+		r.route(b)
+		return nil
+	})
 }
 
 func (r *Router) route(b []byte) {

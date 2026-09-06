@@ -3,12 +3,15 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"sync"
+	"syscall"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"golang.org/x/term"
@@ -23,43 +26,80 @@ import (
 )
 
 func main() {
-	if err := run(); err != nil {
+	if err := run(os.Args[1:]); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return
+		}
 		fmt.Fprintln(os.Stderr, "lazyai:", err)
 		os.Exit(1)
 	}
 }
 
-func run() error {
-	dir := flag.String("dir", ".", "project directory to open OpenCode in")
-	bin := flag.String("opencode", "opencode", "opencode executable")
-	worktree := flag.String("worktree", "", "run in a git worktree for this branch under <repo>/"+git.WorktreeDir+" (created if needed)")
-	base := flag.String("base", "", "start point for a new --worktree branch (default: HEAD)")
-	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "usage: lazyai [--dir DIR] [--worktree BRANCH [--base REF]] [--opencode BIN] [-- opencode args...]\n")
-		flag.PrintDefaults()
-	}
-	flag.Parse()
-	childArgs := flag.Args()
+type launchOptions struct {
+	dir      string
+	bin      string
+	worktree string
+	base     string
+	child    []string
+}
 
-	absDir, err := filepath.Abs(*dir)
-	if err != nil {
-		return err
+func parseLaunchOptions(args []string) (launchOptions, error) {
+	var opts launchOptions
+	fs := flag.NewFlagSet("lazyai", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	fs.StringVar(&opts.dir, "dir", ".", "project directory to open OpenCode in")
+	fs.StringVar(&opts.bin, "opencode", "opencode", "opencode executable")
+	fs.StringVar(&opts.worktree, "worktree", "", "run in a git worktree for this branch under <repo>/"+git.WorktreeDir+" (created if needed)")
+	fs.StringVar(&opts.base, "base", "", "start point for a new --worktree branch (default: HEAD)")
+	fs.Usage = func() {
+		fmt.Fprintln(os.Stderr, "Usage:")
+		fmt.Fprintln(os.Stderr, "  lazyai [options] [-- opencode args...]  Start or reattach a project session")
+		fmt.Fprintln(os.Stderr, "  lazyai list                            List known project sessions")
+		fmt.Fprintln(os.Stderr, "  lazyai --version                       Print the application version")
+		fmt.Fprintln(os.Stderr, "  lazyai stop [--dir DIR]                Stop a project session and all its workstreams")
+		fmt.Fprintln(os.Stderr, "\nSession controls:")
+		fmt.Fprintln(os.Stderr, "  Ctrl+Q detaches without stopping work. Run lazyai for the project to reattach.")
+		fmt.Fprintln(os.Stderr, "\nOptions:")
+		fs.PrintDefaults()
 	}
-	// OpenCode reports paths under the *resolved* directory (e.g. /private/tmp
-	// for /tmp on macOS); the ledger must use the same root or every hook path
-	// looks like it lives outside the workspace.
+	if err := fs.Parse(args); err != nil {
+		return launchOptions{}, err
+	}
+	opts.child = fs.Args()
+	return opts, nil
+}
+
+func prepareRoot(opts launchOptions) (string, error) {
+	absDir, err := filepath.Abs(opts.dir)
+	if err != nil {
+		return "", err
+	}
 	if resolved, err := filepath.EvalSymlinks(absDir); err == nil {
 		absDir = resolved
 	}
-	if *worktree != "" {
-		path, created, err := git.EnsureWorktree(absDir, *worktree, *base)
+	if opts.worktree != "" {
+		path, created, err := git.EnsureWorktree(absDir, opts.worktree, opts.base)
 		if err != nil {
-			return err
+			return "", err
 		}
 		if created {
-			fmt.Fprintf(os.Stderr, "lazyai: created worktree %s at %s\n", *worktree, path)
+			fmt.Fprintf(os.Stderr, "lazyai: created worktree %s at %s\n", opts.worktree, path)
 		}
 		absDir = path
+	}
+	return absDir, nil
+}
+
+func runDirect(args []string) error {
+	opts, err := parseLaunchOptions(args)
+	if err != nil {
+		return err
+	}
+	childArgs := opts.child
+
+	absDir, err := prepareRoot(opts)
+	if err != nil {
+		return err
 	}
 
 	if !term.IsTerminal(int(os.Stdin.Fd())) || !term.IsTerminal(int(os.Stdout.Fd())) {
@@ -105,8 +145,10 @@ func run() error {
 	hostR, hostW := io.Pipe()
 	router := input.New(os.Stdin, discardSink{}, hostW)
 
-	// p is assigned below; the launcher's goroutines only run after p.Run.
+	// Child processes can emit output while app.New is still constructing the
+	// model. Buffer those messages until the Bubble Tea program exists.
 	var p *tea.Program
+	programMessages := make(chan tea.Msg, 64)
 	var children []*terminal.Terminal
 	var roots sync.Map // hook token -> workstream root, for show validation
 	hookSrv.Validate = func(ev hooks.Event) error {
@@ -125,7 +167,7 @@ func run() error {
 		token := hookSrv.Register()
 		roots.Store(token, dir)
 		child, err := terminal.Start(terminal.Options{
-			Command: *bin,
+			Command: opts.bin,
 			Args:    childArgs,
 			Dir:     dir,
 			Env:     append(append([]string{}, baseEnv...), hookSrv.EnvFor(token)...),
@@ -141,11 +183,11 @@ func run() error {
 			for {
 				select {
 				case <-child.Dirty:
-					p.Send(app.ScreenDirtyMsg{})
+					programMessages <- app.ScreenDirtyMsg{}
 				case <-child.Exited:
 					hookSrv.Unregister(token)
 					roots.Delete(token)
-					p.Send(app.ChildExitedMsg{Token: token, Err: child.Err()})
+					programMessages <- app.ChildExitedMsg{Token: token, Err: child.Err()}
 					return
 				}
 			}
@@ -175,9 +217,9 @@ func run() error {
 			for {
 				select {
 				case <-child.Dirty:
-					p.Send(app.ScreenDirtyMsg{})
+					programMessages <- app.ScreenDirtyMsg{}
 				case <-child.Exited:
-					p.Send(app.ChildExitedMsg{Token: token, Shell: true, Err: child.Err()})
+					programMessages <- app.ChildExitedMsg{Token: token, Shell: true, Err: child.Err()}
 					return
 				}
 			}
@@ -210,6 +252,22 @@ func run() error {
 		return err
 	}
 	p = tea.NewProgram(model, tea.WithInput(hostR), tea.WithOutput(os.Stdout), tea.WithAltScreen(), tea.WithMouseCellMotion())
+	go func() {
+		for msg := range programMessages {
+			p.Send(msg)
+		}
+	}()
+	terminate := make(chan os.Signal, 1)
+	signal.Notify(terminate, syscall.SIGTERM)
+	defer signal.Stop(terminate)
+	programDone := make(chan struct{})
+	go func() {
+		select {
+		case <-terminate:
+			p.Quit()
+		case <-programDone:
+		}
+	}()
 
 	router.OnEscape = func() { p.Send(app.EscapeMsg{}) }
 	router.OnQuit = func() { p.Send(app.QuitMsg{}) }
@@ -219,11 +277,12 @@ func run() error {
 
 	go func() {
 		for ev := range hookSrv.Events {
-			p.Send(app.HookMsg{Event: ev})
+			programMessages <- app.HookMsg{Event: ev}
 		}
 	}()
 
 	_, err = p.Run()
+	close(programDone)
 	_ = hostW.Close()
 	return err
 }
