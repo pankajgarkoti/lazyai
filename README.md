@@ -49,11 +49,12 @@ and skill, materialized under your user cache dir.
 
 ## Versioning and release builds
 
-Current version: **0.2.3** (0.2: workstream identities, agent-driven
+Current version: **0.3.0** (0.2: workstream identities, agent-driven
 workstream setup, strict contract entry, accurate activity indicators; 0.2.1
 replaces the strip detail row with the `K` details float; 0.2.2 makes `j`/`k`
 browse workstreams in Normal and adds `Ctrl+Space` `q` to quit a session;
-0.2.3 adds `R` to restore the previous session's workstreams).
+0.2.3 adds `R` to restore the previous session's workstreams; 0.3.0 replaces
+the `jk` chord with `Ctrl+]` for a real Escape, a keymap change).
 LazyAI uses Semantic Versioning (`MAJOR.MINOR.PATCH`). During `0.x`
 development, new features and breaking changes increment the minor version;
 compatible fixes increment the patch version. Version `1.0.0` will mark a stable
@@ -119,7 +120,7 @@ that state instead of pretending to reconstruct those processes.
 `Esc` focuses out into **Normal**: the same OpenCode window, fully visible,
 just with no input routed to it (the border and `NORMAL` indicator show it) until
 `i` (or `Enter`). `t` opens a **Terminal** (your `$SHELL` in the
-worktree) that follows the same rules (`Esc` out, `jk` sends it a real Esc).
+worktree) that follows the same rules (`Esc` out, `Ctrl+]` sends it a real Esc).
 `d` is only available once the agent changed something; `s` once it pointed
 at code.
 
@@ -127,7 +128,7 @@ at code.
 |-----------|-----------------------------------------------------|
 | `Esc`     | Normal: focus out of the pane (visible, no input)      |
 | `i` / `t` | Into OpenCode / into the terminal                   |
-| `jk`      | Send a real Escape into the pane (palette, interrupt)|
+| `Ctrl+]`  | Send a real Escape into the pane (palette, interrupt)|
 | `Ctrl+Q`  | Detach; leave LazyAI and all child processes running |
 
 **Diff** / **Show** – LazyAI owns the keyboard. Each has a sidebar and a
@@ -322,9 +323,9 @@ override with `LAZYAI_DB`) keeps, per repository:
 
 ## Creature comforts
 
-- `jk` typed quickly in Interactive mode sends a real `Esc` to OpenCode (closes
-  its palette, interrupts the agent) — Vim `inoremap jk <Esc>` semantics,
-  200 ms timeout; a slow `j` … `k` types normally. A bare `Esc` leaves to LazyAI.
+- `Ctrl+]` in Interactive mode sends a real `Esc` to OpenCode (closes its
+  palette, interrupts the agent); a bare `Esc` leaves to LazyAI. Typed text,
+  including `j`, is delivered immediately with no chord timeout.
 - `Ctrl+Z` (any mode) or `z` (Diff/Show) zooms: the sidebar hides and OpenCode
   gets the full width.
 - `]` / `[` in Show mode step through locations from either focus (`]q`/`[q`).
@@ -378,7 +379,7 @@ lives in `internal/theme`; Lip Gloss degrades colours on non-truecolor terminals
 cmd/lazyai            attach client, supervisor lifecycle, and direct TUI wiring
 internal/supervisor   project identity, Unix-socket protocol, outer PTY ownership
 internal/terminal     child process in a PTY + VT emulator + screen renderer
-internal/input        raw byte router: child vs host, jk / Ctrl+Space / Ctrl+Z / Ctrl+Q chords
+internal/input        raw byte router: child vs host, Ctrl+] / Ctrl+Space / Ctrl+Z / Ctrl+Q host keys
 internal/hooks        loopback HTTP receiver for plugin events (one token per workstream); setup requests get a reply
 internal/integration  embedded OpenCode plugin (show_locations, setup_workstreams) + skill, materialized on start
 internal/config       optional .lazyai/config.yaml: strict contract templates, validation, deterministic rendering

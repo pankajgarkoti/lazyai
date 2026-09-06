@@ -176,7 +176,12 @@ try:
     pids = json.loads((base / "pkg.pids").read_text())
     tm("send-keys", "-t", p, "-l", "typed")
     wait(lambda: b"typed" in (base / "pkg.input").read_bytes(), "typed input")
-    payload = "line one\nline two jk\x11 END"
+    # Ctrl+] is a literal ESC for the child; jk is plain text now.
+    tm("send-keys", "-t", p, "C-]")
+    tm("send-keys", "-t", p, "-l", "jk-after")
+    wait(lambda: b"\x1bjk-after" in (base / "pkg.input").read_bytes(), "ctrl+] escape")
+    check(True, "ctrl+] sends a real ESC into the pane and jk stays literal")
+    payload = "line one\nline two jk\x11\x1d END"
     paste = base / "paste"
     paste.write_bytes(payload.encode())
     tm("load-buffer", str(paste))
@@ -187,7 +192,7 @@ try:
     data = (base / "pkg.input").read_bytes()
     check(
         b"\x1b[200~" + payload.encode() + b"\x1b[201~" in data,
-        "multiline paste including Ctrl+Q remains framed and literal",
+        "multiline paste including Ctrl+Q and Ctrl+] remains framed and literal",
     )
     # Send an SGR click into the content pane; app translates coordinates for helper.
     mouse = b"\x1b[<0;60;8M"

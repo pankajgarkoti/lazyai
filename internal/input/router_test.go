@@ -25,15 +25,13 @@ func (s *sink) Bytes() []byte {
 func (s *sink) Len() int { s.mu.Lock(); defer s.mu.Unlock(); return s.b.Len() }
 func (s *sink) Reset()   { s.mu.Lock(); defer s.mu.Unlock(); s.b.Reset() }
 
-func TestForwardingRoutesVerbatimExceptChords(t *testing.T) {
+func TestForwardingRoutesVerbatimExceptHostKeys(t *testing.T) {
 	child := &sink{}
 	host := &sink{}
 	r := New(nil, child, host)
 	escapes, quits := 0, 0
 	r.OnEscape = func() { escapes++ }
 	r.OnQuit = func() { quits++ }
-
-	r.ChordTimeout = 0 // chord tested separately
 
 	r.route([]byte("abc"))
 	r.route([]byte{0x1b, '[', 'A'}) // arrow up: ESC followed by more bytes
@@ -71,7 +69,6 @@ func TestHostModeRoutesEverythingToHost(t *testing.T) {
 func TestForwardingRoutesMouseEventsToHostForHitTesting(t *testing.T) {
 	child, host := &sink{}, &sink{}
 	r := New(nil, child, host)
-	r.ChordTimeout = 0
 
 	r.route([]byte("\x1b[<0;40;8M"))
 	if got := host.String(); got != "\x1b[<0;40;8M" {
@@ -91,69 +88,37 @@ func TestForwardingRoutesMouseEventsToHostForHitTesting(t *testing.T) {
 	}
 }
 
-func TestJKChordSendsEscapeToChild(t *testing.T) {
+func TestCtrlRightBracketSendsEscapeToChildAndJKIsLiteral(t *testing.T) {
 	child := &sink{}
 	r := New(nil, child, &sink{})
-	r.ChordTimeout = 30 * time.Millisecond
 	escapes := 0
 	r.OnEscape = func() { escapes++ }
 
+	// Ctrl+] (0x1d) is the one way to send a real ESC into the pane.
+	r.route([]byte{0x1d})
+	if got := child.String(); got != "\x1b" || escapes != 0 {
+		t.Fatalf("ctrl+] should be a literal ESC for OpenCode: child=%q escapes=%d", got, escapes)
+	}
+	child.Reset()
+
+	// j and jk are ordinary text, delivered immediately with no hold.
 	r.route([]byte("j"))
-	if child.Len() != 0 {
-		t.Fatalf("j must be held while the chord is pending, child got %q", child.Bytes())
+	if got := child.String(); got != "j" {
+		t.Fatalf("j must be delivered at once, got %q", got)
 	}
 	r.route([]byte("k"))
-	if got := child.String(); got != "\x1b" || escapes != 0 {
-		t.Fatalf("jk should be a literal ESC for OpenCode: child=%q escapes=%d", got, escapes)
-	}
-	child.Reset()
-
-	// Batched "jk" in one read (fast typing) counts too.
 	r.route([]byte("jk"))
-	if got := child.String(); got != "\x1b" {
-		t.Fatalf("batched jk -> %q", got)
-	}
-	child.Reset()
-
-	// j followed by anything else flushes j then the byte, in order.
-	r.route([]byte("j"))
-	r.route([]byte("a"))
-	if got := child.String(); got != "ja" {
-		t.Fatalf("ja -> %q", got)
-	}
-	child.Reset()
-
-	// jj: the first j flushes, the second stays pending until the timeout.
-	r.route([]byte("j"))
-	r.route([]byte("j"))
-	if got := child.String(); got != "j" {
-		t.Fatalf("jj (before timeout) -> %q", got)
-	}
-	deadline := time.Now().Add(time.Second)
-	for child.String() != "jj" && time.Now().Before(deadline) {
-		time.Sleep(5 * time.Millisecond)
-	}
-	if got := child.String(); got != "jj" {
-		t.Fatalf("jj (after timeout) -> %q", got)
-	}
-	child.Reset()
-
-	// Timeout alone delivers the lone j.
-	r.route([]byte("j"))
-	deadline = time.Now().Add(time.Second)
-	for child.String() != "j" && time.Now().Before(deadline) {
-		time.Sleep(5 * time.Millisecond)
-	}
-	if got := child.String(); got != "j" {
-		t.Fatalf("lone j -> %q", got)
+	if got := child.String(); got != "jkjk" || escapes != 0 {
+		t.Fatalf("jk must stay literal: child=%q escapes=%d", got, escapes)
 	}
 
-	// Switching to host mode flushes a pending j to the child first.
+	// Switching child or mode loses nothing.
 	child.Reset()
-	r.route([]byte("j"))
-	r.SetForward(false)
-	if got := child.String(); got != "j" {
-		t.Fatalf("pending j lost on mode switch: %q", got)
+	other := &sink{}
+	r.SetChild(other)
+	r.route([]byte{0x1d})
+	if other.String() != "\x1b" || child.Len() != 0 {
+		t.Fatalf("after SetChild: other=%q child=%q", other.String(), child.Bytes())
 	}
 }
 
@@ -189,7 +154,6 @@ func TestLeaderCapturesNextKeyForHostAndChildIsSwitchable(t *testing.T) {
 	r := New(nil, child1, host)
 	leaders := 0
 	r.OnLeader = func() { leaders++ }
-	r.ChordTimeout = 0
 
 	r.route([]byte{0x00}) // Ctrl+Space
 	r.route([]byte("2"))  // captured for the host even though forwarding
@@ -218,7 +182,7 @@ func TestPastedControlSequencesDoNotTriggerHostCommands(t *testing.T) {
 	r.OnEscape = func() { commands++ }
 	r.OnZoom = func() { commands++ }
 	r.OnLeader = func() { commands++ }
-	chunks := []string{"\x1b", "[20", "0~", "jk", "\x11", "\x1a", "\x00", "\x1b[<0;4;5M", "\x1b[20", "1~"}
+	chunks := []string{"\x1b", "[20", "0~", "jk", "\x11", "\x1d", "\x1a", "\x00", "\x1b[<0;4;5M", "\x1b[20", "1~"}
 	r.src = &chunkReader{chunks: append([]string(nil), chunks...)}
 	_ = r.Run()
 	if got, want := child.String(), strings.Join(chunks, ""); got != want || commands != 0 || host.Len() != 0 {
