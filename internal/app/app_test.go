@@ -774,7 +774,7 @@ func TestHelpFloatAndModeIndicator(t *testing.T) {
 	}
 	h.key("?")
 	view = stripANSI(h.m.View())
-	if !strings.Contains(view, "h / l previous / next") {
+	if !strings.Contains(view, "j / k in normal, h / l in diff / show") {
 		t.Fatalf("normal help should contain hidden navigation keys:\n%s", view)
 	}
 	h.key("esc")
@@ -934,11 +934,11 @@ func TestWorkstreamNavigationLeaderAndHL(t *testing.T) {
 	if !h.m.normal() {
 		t.Fatal("expected normal")
 	}
-	h.key("h")
+	h.key("k") // j/k browse workstreams in normal
 	if h.m.cur != 0 || !h.m.normal() || h.forward[len(h.forward)-1] != false {
 		t.Fatalf("h -> cur %d mode %v focus %v", h.m.cur, h.m.mode, h.m.focus)
 	}
-	h.key("l")
+	h.key("j")
 	if h.m.cur != 1 || !h.m.normal() {
 		t.Fatalf("l -> cur %d mode %v focus %v", h.m.cur, h.m.mode, h.m.focus)
 	}
@@ -1043,7 +1043,7 @@ func TestCloseAndExitRemoveStreamsAndLastOneQuits(t *testing.T) {
 	if len(h.m.streams) != 2 || !strings.Contains(h.m.notice, "press x again") {
 		t.Fatalf("first x should only ask: notice=%q", h.m.notice)
 	}
-	h.key("j") // anything else cancels the pending close
+	h.key("h") // anything else cancels the pending close (h: file selection, a no-op here)
 	h.key("x")
 	if len(h.m.streams) != 2 {
 		t.Fatal("cancelled close should need two x again")
@@ -1075,11 +1075,11 @@ func TestEverySwitchLandsOnTheAgentPaneInNormal(t *testing.T) {
 		t.Fatal("expected terminal")
 	}
 	h.update(LeaderMsg{})
-	h.key("h") // from a focused pane too: land in normal on the agent pane
+	h.key("h") // leader h from a focused pane too: land in normal on the agent pane
 	if h.m.cur != 0 || !h.m.normal() || h.forward[len(h.forward)-1] != false {
 		t.Fatalf("cur=%d mode=%v focus=%v", h.m.cur, h.m.mode, h.m.focus)
 	}
-	h.key("l") // back to stream 2: agent pane, normal (not its terminal)
+	h.key("j") // back to stream 2: agent pane, normal (not its terminal)
 	if h.m.cur != 1 || !h.m.normal() || h.m.shell == nil {
 		t.Fatalf("cur=%d mode=%v focus=%v shell=%v", h.m.cur, h.m.mode, h.m.focus, h.m.shell != nil)
 	}
@@ -1470,8 +1470,8 @@ func TestMainPinnedOnTopAndWorktreesAppendOnly(t *testing.T) {
 	}
 	// Archive main, then wake it: it goes back to the top, others keep order.
 	h.update(EscapeMsg{})
-	h.key("h")
-	h.key("h") // on main
+	h.key("k")
+	h.key("k") // on main
 	if h.m.name != "main" {
 		t.Fatalf("expected main, on %s", h.m.name)
 	}

@@ -198,7 +198,7 @@ func (m Model) renderHint() string {
 	case m.prompting:
 		// Suggestion / field controls are already inside the form.
 	case m.leader:
-		hints = []kv{{"1-9", "workstream"}, {"ctrl+space", "last"}, {"w", "new"}, {"K", "details"}, {"e", "rename"}, {"a", "archive"}, {"x", "close"}, {"f", "freestyle"}, {"c", "reload config"}, {"z", "zoom"}}
+		hints = []kv{{"1-9", "workstream"}, {"ctrl+space", "last"}, {"w", "new"}, {"K", "details"}, {"e", "rename"}, {"a", "archive"}, {"x", "close"}, {"q", "quit session"}, {"f", "freestyle"}, {"c", "reload config"}, {"z", "zoom"}}
 	case m.help:
 		hints = []kv{{"?", "close"}, {"esc", "close"}}
 	case m.mode == ModeInteractive && m.focus == FocusContent:
@@ -208,7 +208,7 @@ func (m Model) renderHint() string {
 	case m.info:
 		hints = []kv{{"any key", "close"}}
 	case m.normal():
-		hints = []kv{{"w", "worktree"}, {"K", "details"}, {"a", "archive"}, {"?", "help"}}
+		hints = []kv{{"j/k", "workstream"}, {"w", "worktree"}, {"K", "details"}, {"a", "archive"}, {"?", "help"}}
 		if m.strictActive() {
 			hints = append([]kv{{"i", "contract"}}, hints...)
 		}
@@ -233,7 +233,7 @@ func (m Model) renderHint() string {
 
 func (m Model) renderQuitPrompt(w int) []string {
 	rows := []string{theme.DiffHeader.Render(theme.IconWarn + " Quit LazyAI?")}
-	body := theme.PromptText.Render("Quit LazyAI and stop all workstreams?")
+	body := theme.PromptText.Render("Quit LazyAI and stop all workstreams? (ctrl+q only detaches)")
 	choices := theme.StatusKey.Render("y") + theme.PromptText.Render(" yes") + "   " +
 		theme.StatusKey.Render("n") + theme.PromptText.Render(" no")
 	rows = append(rows, renderFloat(theme.IconWarn, theme.DiagWarn, body, choices+theme.Dim.Render(" · esc cancel"), 1, w)...)
@@ -637,13 +637,13 @@ func (m Model) changedCount() int {
 // renderHelp draws the keymap as one diagnostic-style float.
 func renderHelp(w int) []string {
 	sections := []struct{ title, keys string }{
-		{"session lifecycle (available on every screen)", "ctrl+q: detach and keep all work running · reattach: run lazyai for the project · lazyai list: inspect sessions · lazyai stop --dir DIR: stop a project and all workstreams"},
+		{"session lifecycle (available on every screen)", "ctrl+q: detach and keep all work running · reattach: run lazyai for the project · ctrl+space q: quit the session (stops every workstream, after confirming) · lazyai list: inspect sessions · lazyai stop --dir DIR: stop a project and all workstreams"},
 		{"interactive / terminal (the pane owns the keys)", "esc: normal (pane remains visible, no input) · jk: send ESC into the pane · ctrl+space: workstream leader · ctrl+z: zoom"},
-		{"normal (pane focused out)", "i: opencode · t: terminal · d: diff (when there are changes) · s: show (when the agent pointed at code) · j/k: pick a file for d · enter: back into the pane"},
-		{"workstreams (one OpenCode per git worktree)", "h / l previous / next · w: new or wake a dormant worktree (branch, nickname, optional description) · K: details float (branch, description, worktree, activity; any key closes) · e: rename the current one · a: archive (dormant: stops OpenCode, keeps the worktree) · x x: close · from a pane: ctrl+space then h / l / 1-9 / ctrl+space (last) / w / K / e / a / x"},
+		{"normal (pane focused out)", "i: opencode · t: terminal · d: diff (when there are changes) · s: show (when the agent pointed at code) · j/k: previous / next workstream · h/l: pick a file for d · enter: back into the pane"},
+		{"workstreams (one OpenCode per git worktree)", "j / k in normal, h / l in diff / show: previous / next · w: new or wake a dormant worktree (branch, nickname, optional description) · K: details float (branch, description, worktree, activity; any key closes) · e: rename the current one · a: archive (dormant: stops OpenCode, keeps the worktree) · x x: close · from a pane: ctrl+space then h / l / 1-9 / ctrl+space (last) / w / K / e / a / x"},
 		{"strip glyphs", "! OpenCode waits on you · spinner: tool calls running · " + theme.Unseen + " output you have not looked at · " + theme.Dot + " idle"},
 		{"strict contracts (.lazyai/config.yaml)", "i / enter: fill the contract form instead of typing · tab: next field · ctrl+s: send · esc: keep draft and close · ctrl+space f: freestyle for this workstream · ctrl+space c: reload config · agents: setup_workstreams tool opens workstreams like w"},
-		{"sidebar", "j/k: select · h/l: workstream · 1-9: jump · enter: focus content · esc: normal · tab: focus"},
+		{"sidebar (diff / show)", "j/k: select · h/l: workstream · 1-9: jump · enter: focus content · esc: normal · tab: focus"},
 		{"content", "j/k: scroll · ctrl+d/u: half page · g/G: top/bottom · esc/h: back to sidebar"},
 		{"diff", "[ ]: previous/next hunk · r: reference hunk in prompt"},
 		{"show", "[ ]: previous/next location (either focus) · r: reference location"},
