@@ -154,7 +154,10 @@ func TestSupervisorForwardsAttachSizeAndInput(t *testing.T) {
 		done <- Serve(Config{
 			ProjectRoot: t.TempDir(), RequestedRoot: t.TempDir(), SocketPath: socket,
 			DBPath: filepath.Join(t.TempDir(), "lazyai.db"), Command: "/bin/sh",
-			Args:  []string{"-c", "sleep 0.2; stty size; IFS= read -r line; printf 'INPUT:%s' \"$line\"; sleep 30"},
+			// The resize is sent before the input on one connection and the
+			// supervisor applies messages in order, so reading the size after
+			// the input arrives observes the resized PTY regardless of speed.
+			Args:  []string{"-c", "IFS= read -r line; stty size; printf 'INPUT:%s' \"$line\"; sleep 30"},
 			Width: 20, Height: 5,
 		})
 	}()
