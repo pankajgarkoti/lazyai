@@ -64,11 +64,17 @@ func (m Model) View() string {
 		if m.contract != nil {
 			rows = m.renderContract(rows, rw, rh)
 		}
+		if m.info {
+			rows = m.renderInfo(rows, rw, rh)
+		}
 		body = strings.Join(rows, "\n")
 	case m.mode == ModeDiff:
 		body = m.diffView.View()
 	case m.mode == ModeShow:
 		body = m.showView.View()
+	}
+	if m.info && !m.mode.live() {
+		body = strings.Join(m.renderInfo(strings.Split(body, "\n"), rw, rh), "\n")
 	}
 	rpStyle := theme.BorderUnfocused
 	if m.focus == FocusContent {
@@ -192,15 +198,17 @@ func (m Model) renderHint() string {
 	case m.prompting:
 		// Suggestion / field controls are already inside the form.
 	case m.leader:
-		hints = []kv{{"1-9", "workstream"}, {"ctrl+space", "last"}, {"w", "new"}, {"e", "rename"}, {"a", "archive"}, {"x", "close"}, {"f", "freestyle"}, {"c", "reload config"}, {"z", "zoom"}}
+		hints = []kv{{"1-9", "workstream"}, {"ctrl+space", "last"}, {"w", "new"}, {"K", "details"}, {"e", "rename"}, {"a", "archive"}, {"x", "close"}, {"f", "freestyle"}, {"c", "reload config"}, {"z", "zoom"}}
 	case m.help:
 		hints = []kv{{"?", "close"}, {"esc", "close"}}
 	case m.mode == ModeInteractive && m.focus == FocusContent:
 		hints = []kv{{"esc", "normal"}, {"jk", "esc→opencode"}, {"ctrl+space", "workstreams"}, {"ctrl+z", "zoom"}}
 	case m.mode == ModeTerminal && m.focus == FocusContent:
 		hints = []kv{{"esc", "normal"}, {"jk", "esc→shell"}, {"ctrl+space", "workstreams"}, {"ctrl+z", "zoom"}}
+	case m.info:
+		hints = []kv{{"any key", "close"}}
 	case m.normal():
-		hints = []kv{{"w", "worktree"}, {"a", "archive"}, {"?", "help"}}
+		hints = []kv{{"w", "worktree"}, {"K", "details"}, {"a", "archive"}, {"?", "help"}}
 		if m.strictActive() {
 			hints = append([]kv{{"i", "contract"}}, hints...)
 		}
@@ -249,24 +257,13 @@ func (m Model) streamGlyph(s *stream) (string, lipgloss.Style) {
 	return theme.Dot, theme.Dim
 }
 
-// detailRows is 1 when the current workstream shows a second line (branch and
-// description) under its strip row, else 0.
-func (m Model) detailRows() int {
-	if m.stream == nil {
-		return 0
-	}
-	if m.nickname != "" && m.nickname != m.name || m.description != "" {
-		return 1
-	}
-	return 0
-}
-
 // stripRows is the number of rows the workstream strip uses under its title.
-func (m Model) stripRows() int { return len(m.streams) + m.detailRows() }
+// It is always one row per workstream so browsing never shifts the layout;
+// branch and description live in the status bar and the K float.
+func (m Model) stripRows() int { return len(m.streams) }
 
 // renderStreams draws the workstream strip that tops the sidebar in every
-// mode: number, nickname and the activity glyph; the current one adds a dim
-// detail row with its branch and description.
+// mode: number, nickname and the activity glyph.
 func (m Model) renderStreams(w int) string {
 	var b strings.Builder
 	b.WriteString(sidebarTitle(theme.IconWorktree+" Workstreams", fmt.Sprint(len(m.streams)), w))
@@ -288,16 +285,52 @@ func (m Model) renderStreams(w int) string {
 			b.WriteString(theme.Index.Render(idx) + " " + name + strings.Repeat(" ", gap) + gs.Render(glyph))
 		}
 		b.WriteString("\n")
-		if i == m.cur && m.detailRows() > 0 {
-			detail := theme.IconBranch + " " + s.name
-			if s.description != "" {
-				detail += " · " + s.description
-			}
-			b.WriteString(theme.Dim.Render(ansi.Truncate("  "+detail, w, "…")))
-			b.WriteString("\n")
-		}
 	}
 	return b.String()
+}
+
+// renderInfo lays the workstream float over the content rows: at the pane's
+// left edge, aligned with the current strip row, so it reads as a hover on
+// that entry. It shows what the strip deliberately does not: branch,
+// description, worktree and activity.
+func (m Model) renderInfo(rows []string, w, h int) []string {
+	s := m.stream
+	state := "idle"
+	switch {
+	case s.attention:
+		state = "waiting on you"
+	case s.working():
+		state = fmt.Sprintf("working (%d tool call%s)", len(s.active), map[bool]string{true: "", false: "s"}[len(s.active) == 1])
+	case s.unseen:
+		state = "unseen output"
+	}
+	// Plain text only: renderFloat wraps and styles the body itself, and
+	// inline escapes would confuse its width accounting.
+	var b strings.Builder
+	b.WriteString(theme.IconBranch + " " + s.name + "\n")
+	if s.description != "" {
+		b.WriteString(s.description + "\n")
+	} else {
+		b.WriteString("no description · e to add one\n")
+	}
+	b.WriteString(theme.IconWorktree + " " + s.root)
+	footer := state + " · any key closes"
+	box := renderFloat(theme.IconInfo, theme.DiagInfo, s.displayName()+"\n"+strings.TrimRight(b.String(), "\n"), footer, 0, w)
+	for len(rows) < h {
+		rows = append(rows, "")
+	}
+	out := make([]string, len(rows))
+	copy(out, rows)
+	top := m.cur // strip row of the current stream, in pane coordinates
+	if top+len(box) > len(out) {
+		top = max(0, len(out)-len(box))
+	}
+	for i, r := range box {
+		if y := top + i; y >= 0 && y < len(out) {
+			out[y] = ansi.Truncate(r, w, "")
+		}
+	}
+	return out
 }
 
 func (m Model) renderFileList(w, h int) string {
@@ -607,7 +640,7 @@ func renderHelp(w int) []string {
 		{"session lifecycle (available on every screen)", "ctrl+q: detach and keep all work running · reattach: run lazyai for the project · lazyai list: inspect sessions · lazyai stop --dir DIR: stop a project and all workstreams"},
 		{"interactive / terminal (the pane owns the keys)", "esc: normal (pane remains visible, no input) · jk: send ESC into the pane · ctrl+space: workstream leader · ctrl+z: zoom"},
 		{"normal (pane focused out)", "i: opencode · t: terminal · d: diff (when there are changes) · s: show (when the agent pointed at code) · j/k: pick a file for d · enter: back into the pane"},
-		{"workstreams (one OpenCode per git worktree)", "h / l previous / next · w: new or wake a dormant worktree (branch, nickname, optional description) · e: rename the current one · a: archive (dormant: stops OpenCode, keeps the worktree) · x x: close · from a pane: ctrl+space then h / l / 1-9 / ctrl+space (last) / w / e / a / x"},
+		{"workstreams (one OpenCode per git worktree)", "h / l previous / next · w: new or wake a dormant worktree (branch, nickname, optional description) · K: details float (branch, description, worktree, activity; any key closes) · e: rename the current one · a: archive (dormant: stops OpenCode, keeps the worktree) · x x: close · from a pane: ctrl+space then h / l / 1-9 / ctrl+space (last) / w / K / e / a / x"},
 		{"strip glyphs", "! OpenCode waits on you · spinner: tool calls running · " + theme.Unseen + " output you have not looked at · " + theme.Dot + " idle"},
 		{"strict contracts (.lazyai/config.yaml)", "i / enter: fill the contract form instead of typing · tab: next field · ctrl+s: send · esc: keep draft and close · ctrl+space f: freestyle for this workstream · ctrl+space c: reload config · agents: setup_workstreams tool opens workstreams like w"},
 		{"sidebar", "j/k: select · h/l: workstream · 1-9: jump · enter: focus content · esc: normal · tab: focus"},
