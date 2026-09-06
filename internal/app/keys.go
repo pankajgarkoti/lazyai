@@ -54,6 +54,9 @@ func (m Model) applyKey(key string) (tea.Model, tea.Cmd) {
 	case "K":
 		m.openInfo()
 		return m, nil
+	case "R":
+		m.restoreWorkstreams()
+		return m, nil
 	case "t":
 		m.enter(ModeTerminal)
 		return m, nil

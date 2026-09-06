@@ -3,7 +3,9 @@ package app
 import (
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -257,12 +259,17 @@ func (m Model) streamByBranch(branch string) (int, *stream) {
 }
 
 // closeStream terminates a workstream's child and removes it. Closing the
-// last one quits LazyAI.
+// last one quits LazyAI. A closed worktree is parked (dormant) so the next
+// session does not offer to restore it; only worktrees still open when a
+// session ends are restorable.
 func (m *Model) closeStream(i int) tea.Cmd {
 	if i < 0 || i >= len(m.streams) {
 		return nil
 	}
 	s := m.streams[i]
+	if m.cfg.Notes != nil && s.repo.Main != "" {
+		_ = m.cfg.Notes.SetDormant(s.repo.Main, s.name, true)
+	}
 	_ = s.term.Close()
 	if s.shell != nil {
 		_ = s.shell.Close()
@@ -344,6 +351,8 @@ func (m Model) leaderKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.openIdentityEdit()
 	case "K":
 		m.openInfo()
+	case "R":
+		m.restoreWorkstreams()
 	case "a":
 		cmd := m.archiveStream()
 		return m, cmd
@@ -461,6 +470,65 @@ func (m *Model) OpenWorkstream(spec hooks.WorkstreamSpec, activate bool) (Workst
 	}
 	res.Launched = true
 	return res, nil
+}
+
+// Restore -------------------------------------------------------------------
+
+// findRestorable collects the worktrees the previous session left open: not
+// archived or closed (dormant), not running now, and still on disk. Rows come
+// back in creation order so a restore rebuilds the strip as it was.
+func (m *Model) findRestorable() {
+	m.restorable = nil
+	if m.cfg.Notes == nil || m.stream == nil || m.repo.Main == "" {
+		return
+	}
+	list, err := m.cfg.Notes.Worktrees(m.repo.Main)
+	if err != nil {
+		return
+	}
+	var out []notes.Worktree
+	for _, w := range list {
+		if w.Dormant || w.Path == "" {
+			continue
+		}
+		if _, running := m.streamByBranch(w.Branch); running != nil {
+			continue
+		}
+		if st, err := os.Stat(w.Path); err != nil || !st.IsDir() {
+			continue
+		}
+		out = append(out, w)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.Before(out[j].CreatedAt) })
+	m.restorable = out
+	if n := len(out); n > 0 {
+		m.notice = fmt.Sprintf("previous session left %d workstream%s open · R restores them", n, plural(n))
+	}
+}
+
+// restoreWorkstreams reopens the restorable worktrees in the background so
+// the current workstream keeps focus.
+func (m *Model) restoreWorkstreams() {
+	if len(m.restorable) == 0 {
+		m.notice = "nothing to restore from the previous session"
+		return
+	}
+	ok := 0
+	for _, w := range m.restorable {
+		if r, err := m.OpenWorkstream(hooks.WorkstreamSpec{Branch: w.Branch}, false); err == nil && r.Launched {
+			ok++
+		}
+	}
+	total := len(m.restorable)
+	m.restorable = nil
+	m.notice = fmt.Sprintf("restored %d/%d workstream%s from the previous session", ok, total, plural(total))
+}
+
+func plural(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
 }
 
 // Agent setup ---------------------------------------------------------------

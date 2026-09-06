@@ -13,7 +13,9 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"lazyai/internal/config"
+	"lazyai/internal/git"
 	"lazyai/internal/hooks"
+	"lazyai/internal/notes"
 	"lazyai/internal/terminal"
 	"lazyai/internal/theme"
 )
@@ -235,6 +237,98 @@ func TestLeaderQQuitsTheSessionAfterConfirmation(t *testing.T) {
 	if !strings.Contains(strings.Join(renderHelp(220), "\n"), "ctrl+space q") {
 		t.Fatal("help should document ctrl+space q")
 	}
+}
+
+// --- Restore the previous session's workstreams ------------------------------
+
+func TestRestoreReopensWorkstreamsLeftOpenByThePreviousSession(t *testing.T) {
+	root := t.TempDir()
+	os.WriteFile(filepath.Join(root, "a.go"), []byte(goFile), 0o644)
+	gitRepo(t, root)
+	// Previous session: two worktrees left open, one archived, one closed, one
+	// whose directory is gone.
+	st := newMemStore()
+	mk := func(branch string, i int) string {
+		p, _, err := gitEnsure(root, branch)
+		if err != nil {
+			t.Fatal(err)
+		}
+		st.wts[branch] = &notes.Worktree{Repo: realpath(root), Branch: branch, Path: p, Linked: true, CreatedAt: time.Unix(int64(1000+i), 0)}
+		return p
+	}
+	mk("feat/second", 2)
+	mk("feat/first", 1)
+	st.wts["feat/second"].Nickname = "Second lane"
+	mk("feat/archived", 3)
+	st.wts["feat/archived"].Dormant = true
+	gone := mk("feat/gone", 4)
+	os.RemoveAll(gone)
+	st.wts["main"] = &notes.Worktree{Repo: realpath(root), Branch: "main", Path: realpath(root)}
+
+	h := &harness{root: root}
+	m, err := New(Config{Root: root, Launch: h.launch, Notes: st,
+		SetForward: func(v bool) { h.forward = append(h.forward, v) }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		for _, c := range h.children {
+			c.Close()
+		}
+	})
+	h.m = m
+	h.update(tea.WindowSizeMsg{Width: 120, Height: 30})
+
+	// Only the two left-open worktrees that still exist are restorable.
+	if got := branches(h.m.restorable); got != "feat/first,feat/second" {
+		t.Fatalf("restorable=%q", got)
+	}
+	if !strings.Contains(h.m.notice, "2 workstreams") || !strings.Contains(h.m.notice, "R") {
+		t.Fatalf("startup notice=%q", h.m.notice)
+	}
+	h.update(EscapeMsg{})
+	if s := stripANSI(h.m.renderHint()); !strings.Contains(s, "R:restore 2") {
+		t.Fatalf("hint=%q", s)
+	}
+	// R reopens them in original order, in the background: focus stays put.
+	h.key("R")
+	names := []string{}
+	for _, s := range h.m.streams {
+		names = append(names, s.name)
+	}
+	if strings.Join(names, ",") != "main,feat/first,feat/second" || h.m.cur != 0 || !h.m.normal() {
+		t.Fatalf("after R: %v cur=%d", names, h.m.cur)
+	}
+	if h.m.streams[2].nickname != "Second lane" {
+		t.Fatal("restored workstream should keep its identity")
+	}
+	if len(h.m.restorable) != 0 || !strings.Contains(h.m.notice, "restored 2") || strings.Contains(stripANSI(h.m.renderHint()), "restore") {
+		t.Fatalf("restorable=%d notice=%q", len(h.m.restorable), h.m.notice)
+	}
+	h.key("R")
+	if !strings.Contains(h.m.notice, "nothing") {
+		t.Fatalf("second R: %q", h.m.notice)
+	}
+	// An explicit close parks the worktree (dormant) so it is not offered
+	// again; archive already did. A session that simply ends leaves rows open.
+	h.key("j") // -> feat/first
+	h.key("x")
+	h.key("x")
+	if !st.wts["feat/first"].Dormant || st.wts["feat/second"].Dormant {
+		t.Fatalf("close should mark dormant: first=%v second=%v", st.wts["feat/first"].Dormant, st.wts["feat/second"].Dormant)
+	}
+}
+
+func branches(list []notes.Worktree) string {
+	var out []string
+	for _, w := range list {
+		out = append(out, w.Branch)
+	}
+	return strings.Join(out, ",")
+}
+
+func gitEnsure(root, branch string) (string, bool, error) {
+	return git.EnsureWorktree(root, branch, "")
 }
 
 // --- Workstream hover --------------------------------------------------------
