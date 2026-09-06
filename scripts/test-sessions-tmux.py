@@ -147,6 +147,13 @@ def sessions():
         return db.execute("select project,pid,status from runtime_sessions").fetchall()
 
 
+def sessions_for(project):
+    for row in sessions():
+        if row[0] == str(project):
+            return row[2]
+    return None
+
+
 def alive(pid):
     try:
         os.kill(pid, 0)
@@ -292,8 +299,21 @@ try:
     wait(lambda: "branch off" in screen(fourth), "new workstream base prompt")
     tm("send-keys", "-t", fourth, "m")
     wait(lambda: (base / "auxiliary.pids").exists(), "second workstream startup")
-    wait(lambda: "Side quest" in screen(fourth) and "drive smoke" in screen(fourth), "identity shown")
-    check(True, "workstream form records nickname and description shown in the strip")
+    wait(lambda: "Side quest" in screen(fourth), "nickname shown")
+    check("drive smoke" not in screen(fourth), "strip shows the nickname only (no detail row)")
+    tm("send-keys", "-t", fourth, "Escape")
+    time.sleep(0.2)
+    tm("send-keys", "-t", fourth, "-l", "K")
+    wait(lambda: "drive smoke" in screen(fourth) and "auxiliary" in screen(fourth), "K details float")
+    tm("send-keys", "-t", fourth, "-l", "j")
+    wait(lambda: "drive smoke" not in screen(fourth), "any key closes the float")
+    check("Side quest" in screen(fourth), "K shows branch and description in a float; the next key closes it")
+    # j/k in normal browse workstreams: j from 2 wraps to 1 (fresh), k returns.
+    tm("send-keys", "-t", fourth, "-l", "k")
+    wait(lambda: "READY fresh" in screen(fourth), "k switches to the previous workstream")
+    tm("send-keys", "-t", fourth, "-l", "j")
+    wait(lambda: "READY auxiliary" in screen(fourth), "j switches back")
+    check(True, "j/k browse workstreams in normal")
     auxiliary = json.loads((base / "auxiliary.pids").read_text())
     tm("send-keys", "-t", fourth, "Escape")
     time.sleep(0.2)
@@ -331,12 +351,16 @@ try:
     wait(lambda: expected in (base / "repo.input").read_bytes(), "contract paste")
     wait(lambda: "INTERACTIVE" in screen(fifth) and "CONTRACT" not in screen(fifth), "contract hands over")
     check(True, "strict contract form sends one deterministic YAML paste and returns to OpenCode")
-    tm("send-keys", "-t", fifth, "Escape")
+    # Ctrl+Space q from inside the pane quits the whole session after y.
+    repopids = json.loads((base / "repo.pids").read_text())
+    tm("send-keys", "-t", fifth, "C-Space")
     time.sleep(0.2)
-    tm("send-keys", "-t", fifth, "-l", "x")
-    time.sleep(0.2)
-    tm("send-keys", "-t", fifth, "-l", "x")
-    wait(lambda: "CLIENT_EXIT" in screen(fifth), "close strict workstream")
+    tm("send-keys", "-t", fifth, "-l", "q")
+    wait(lambda: "stop all workstreams" in screen(fifth), "quit confirmation")
+    tm("send-keys", "-t", fifth, "-l", "y")
+    wait(lambda: "CLIENT_EXIT" in screen(fifth), "leader q quits the session")
+    wait(lambda: all(not alive(pid) for pid in repopids), "quit descendant cleanup")
+    check(sessions_for(repo) != "running", "ctrl+space q ends the session and its workers")
     if options.real_opencode:
         # Real OpenCode startup uses the same binary, actual terminal and local config.
         realrepo = base / "real"

@@ -349,6 +349,10 @@ func (m Model) leaderKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	case "x":
 		return m.requestClose()
+	case "q":
+		// Quit the whole session (every workstream) after confirming. Ctrl+Q
+		// alone only detaches when a supervisor client is attached.
+		m.openQuit()
 	case "z":
 		m.zoom = !m.zoom
 		m.relayout()

@@ -122,14 +122,33 @@ func (m Model) sidebarKey(key string) (tea.Model, tea.Cmd) {
 		}
 		m.focus = FocusContent
 		m.syncKeyboard() // in normal this hands the live pane the keys
+	// In normal (a live pane on screen) the strip is what you browse: j/k
+	// move between workstreams and h/l pick a file for d. Inside Diff / Show
+	// the list is the subject, so j/k select entries and h/l switch streams.
 	case "h", "left":
-		m.cycleStream(-1)
+		if m.mode.live() {
+			m.moveSelection(-1)
+		} else {
+			m.cycleStream(-1)
+		}
 	case "l", "right":
-		m.cycleStream(1)
+		if m.mode.live() {
+			m.moveSelection(1)
+		} else {
+			m.cycleStream(1)
+		}
 	case "j", "down":
-		m.moveSelection(1)
+		if m.mode.live() {
+			m.cycleStream(1)
+		} else {
+			m.moveSelection(1)
+		}
 	case "k", "up":
-		m.moveSelection(-1)
+		if m.mode.live() {
+			m.cycleStream(-1)
+		} else {
+			m.moveSelection(-1)
+		}
 	case "g":
 		m.moveSelection(-1 << 30)
 	case "G":

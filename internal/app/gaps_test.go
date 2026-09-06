@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -123,6 +124,116 @@ func TestMouseYesClickQuitsAndReleaseMotionModifiersReachChild(t *testing.T) {
 	wheel := mouseEvent(tea.MouseMsg{Button: tea.MouseButtonWheelDown, Action: tea.MouseActionPress}, 1, 1)
 	if int(wheel.Button) != int(tea.MouseButtonWheelDown) {
 		t.Fatalf("wheel button lost: %+v", wheel)
+	}
+}
+
+// --- Normal-mode navigation: j/k workstreams, h/l files ----------------------
+
+func TestNormalUsesJKForWorkstreamsAndHLForFiles(t *testing.T) {
+	h := twoStreams(t) // cur = 2
+	for i := 1; i <= 3; i++ {
+		p := filepath.Join(h.m.root, fmt.Sprintf("f%d.go", i))
+		os.WriteFile(p, []byte(goFile), 0o644)
+		h.hook(hooks.Event{Type: "file.read", Path: p})
+	}
+	h.update(EscapeMsg{})
+	if !h.m.normal() {
+		t.Fatal("expected normal")
+	}
+	// j / k cycle workstreams (wrapping) and land in normal.
+	h.key("j")
+	if h.m.cur != 0 || !h.m.normal() {
+		t.Fatalf("j -> cur %d normal=%v", h.m.cur, h.m.normal())
+	}
+	h.key("k")
+	if h.m.cur != 1 {
+		t.Fatalf("k -> cur %d", h.m.cur)
+	}
+	// h / l move the file selection exactly as j / k used to.
+	h.key("l")
+	h.key("l")
+	if h.m.fileSel != 2 || h.m.cur != 1 {
+		t.Fatalf("l l -> fileSel %d cur %d", h.m.fileSel, h.m.cur)
+	}
+	h.key("h")
+	if h.m.fileSel != 1 {
+		t.Fatalf("h -> fileSel %d", h.m.fileSel)
+	}
+	h.key("l")
+	h.key("l") // clamps at the last file
+	if h.m.fileSel != 2 {
+		t.Fatalf("clamp -> fileSel %d", h.m.fileSel)
+	}
+	// Diff mode keeps j / k for files and h / l for workstreams.
+	p := filepath.Join(h.m.root, "f1.go")
+	h.hook(hooks.Event{Type: "file.before", Path: p})
+	os.WriteFile(p, []byte("changed\n"), 0o644)
+	h.hook(hooks.Event{Type: "file.write", Path: p})
+	h.key("d")
+	if h.m.mode != ModeDiff {
+		t.Fatal("expected diff")
+	}
+	h.key("k")
+	if h.m.fileSel != 1 || h.m.cur != 1 {
+		t.Fatalf("diff k -> fileSel %d cur %d", h.m.fileSel, h.m.cur)
+	}
+	h.key("h")
+	if h.m.cur != 0 || !h.m.normal() {
+		t.Fatalf("diff h -> cur %d normal=%v", h.m.cur, h.m.normal())
+	}
+	// Show mode likewise (j in normal first returns to workstream 2).
+	h.key("j")
+	if h.m.cur != 1 {
+		t.Fatalf("normal j -> cur %d", h.m.cur)
+	}
+	q := filepath.Join(h.m.root, "s.go")
+	os.WriteFile(q, []byte(strings.Repeat("x\n", 20)), 0o644)
+	h.hook(hooks.Event{Type: "show", Locations: []hooks.Location{{Path: q, Line: 2}, {Path: q, Line: 5}}})
+	h.key("j")
+	if h.m.showSel != 1 || h.m.cur != 1 {
+		t.Fatalf("show j -> showSel %d cur %d", h.m.showSel, h.m.cur)
+	}
+	h.key("l")
+	if h.m.cur != 0 {
+		t.Fatalf("show l -> cur %d", h.m.cur)
+	}
+	// The hint tells you about j/k in normal.
+	if s := stripANSI(h.m.renderHint()); !strings.Contains(s, "j/k:workstream") {
+		t.Fatalf("normal hint: %q", s)
+	}
+}
+
+func TestLeaderQQuitsTheSessionAfterConfirmation(t *testing.T) {
+	h := twoStreams(t) // interactive, OpenCode owns the keys
+	h.update(LeaderMsg{})
+	h.key("q")
+	if !h.m.confirmQuit || h.forward[len(h.forward)-1] {
+		t.Fatalf("leader q should open the quit confirmation and take the keys: confirm=%v", h.m.confirmQuit)
+	}
+	if v := stripANSI(h.m.View()); !strings.Contains(v, "stop all workstreams") || !strings.Contains(v, "y yes") {
+		t.Fatalf("quit float missing:\n%s", v)
+	}
+	h.key("n")
+	if h.m.confirmQuit || !h.forward[len(h.forward)-1] || len(h.m.streams) != 2 {
+		t.Fatal("n should cancel and return the keys")
+	}
+	// From normal it works the same and y quits.
+	h.update(EscapeMsg{})
+	h.update(tea.KeyMsg{Type: tea.KeyCtrlAt})
+	h.key("q")
+	if !h.m.confirmQuit {
+		t.Fatal("ctrl+@ q from normal should confirm quit")
+	}
+	mm, cmd := h.m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	h.m = mm.(Model)
+	if cmd == nil {
+		t.Fatal("y should quit")
+	}
+	if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Fatal("y should emit tea.QuitMsg")
+	}
+	if !strings.Contains(strings.Join(renderHelp(220), "\n"), "ctrl+space q") {
+		t.Fatal("help should document ctrl+space q")
 	}
 }
 

@@ -1,4 +1,4 @@
 package main
 
 // version is the application version, following Semantic Versioning.
-const version = "0.2.1"
+const version = "0.2.2"

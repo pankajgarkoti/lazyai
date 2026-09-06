@@ -49,9 +49,10 @@ and skill, materialized under your user cache dir.
 
 ## Versioning and release builds
 
-Current version: **0.2.1** (0.2: workstream identities, agent-driven
+Current version: **0.2.2** (0.2: workstream identities, agent-driven
 workstream setup, strict contract entry, accurate activity indicators; 0.2.1
-replaces the strip detail row with the `K` details float).
+replaces the strip detail row with the `K` details float; 0.2.2 makes `j`/`k`
+browse workstreams in Normal and adds `Ctrl+Space` `q` to quit a session).
 LazyAI uses Semantic Versioning (`MAJOR.MINOR.PATCH`). During `0.x`
 development, new features and breaking changes increment the minor version;
 compatible fixes increment the patch version. Version `1.0.0` will mark a stable
@@ -99,6 +100,7 @@ Session and workstream controls have different scopes:
 | Control | Scope |
 |---|---|
 | `Ctrl+Q` | Detach this terminal client; leave the project session running |
+| `Ctrl+Space` `q` | Quit the session from inside: confirm with `y`, every workstream stops |
 | `a` | Archive the current workstream; stop its processes but keep its worktree |
 | `x x` | Close the current workstream and its processes |
 | `lazyai stop --dir DIR` | Stop the entire project session and every workstream |
@@ -132,10 +134,10 @@ content pane; `Enter` focuses the content, `Esc` returns to the sidebar.
 
 | Key                | Sidebar focus                | Content focus            |
 |--------------------|------------------------------|--------------------------|
-| `j` / `k`          | Select file / location       | Scroll one line          |
+| `j` / `k`          | Select file / location (in Normal: previous / next workstream) | Scroll one line |
 | `Enter`            | Focus content                | –                        |
 | `Esc`              | Back to Interactive          | Back to sidebar          |
-| `h` / `l`          | Previous / next workstream   | `h`: back to sidebar     |
+| `h` / `l`          | Previous / next workstream (in Normal: select file) | `h`: back to sidebar |
 | `Tab`              | Toggle focus                 | Toggle focus             |
 | `Ctrl+D`/`Ctrl+U`  | –                            | Half page                |
 | `g` / `G`          | First / last entry           | Top / bottom             |
@@ -196,11 +198,13 @@ nothing else. The glyph is the stream's activity, by precedence:
 
 | Where                     | Keys                                                                              |
 |---------------------------|-----------------------------------------------------------------------------------|
-| Normal / Diff / Show sidebar | `h` / `l` previous / next · `w` new or wake · `a` archive (dormant) · `x x` close |
-| inside a pane             | `Ctrl+Space` then `h` / `l` · `1`–`9` go to n · `Ctrl+Space` again = last · `w` · `a` · `x` |
+| Normal (pane focused out) | `j` / `k` previous / next workstream · `h` / `l` pick a file for `d` · `w` new or wake · `K` details · `a` archive (dormant) · `x x` close |
+| Diff / Show sidebar       | `j` / `k` select entry · `h` / `l` previous / next workstream · same `w` / `K` / `a` / `x x` |
+| inside a pane             | `Ctrl+Space` then `h` / `l` · `1`–`9` go to n · `Ctrl+Space` again = last · `w` · `K` · `a` · `x` · `q` quit session |
 
-Every switch (`h`/`l`, leader, waking) lands on the agent pane in Normal:
-OpenCode on screen, LazyAI keeps the keyboard, so you can keep browsing.
+Every switch (`j`/`k` in Normal, `h`/`l` in Diff/Show, leader, waking) lands on
+the agent pane in Normal: OpenCode on screen, LazyAI keeps the keyboard, so you
+can keep browsing.
 `Enter` or `i` steps into OpenCode; that stream's diff, show set and shell are
 still one key away (`d`, `s`, `t`). A freshly created workstream starts focused
 since the next thing you do is type its task.
