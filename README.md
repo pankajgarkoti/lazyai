@@ -29,6 +29,22 @@ configuration, providers, sessions, skills and plugins all apply; LazyAI only
 adds one extra config directory (`OPENCODE_CONFIG_DIR`) containing its plugin
 and skill, materialized under your user cache dir.
 
+## Versioning and release builds
+
+Current version: **0.1.0**, introducing persistent project sessions.
+LazyAI uses Semantic Versioning (`MAJOR.MINOR.PATCH`). During `0.x`
+development, new features and breaking changes increment the minor version;
+compatible fixes increment the patch version. Version `1.0.0` will mark a stable
+public interface. Release tags use `vMAJOR.MINOR.PATCH`.
+
+The application version is defined in `cmd/lazyai/version.go` and is included in
+both regular and release builds. Run `lazyai --version` to inspect it.
+
+```sh
+make release          # optimized Go build with paths and debug symbols stripped
+./bin/lazyai --version
+```
+
 ## Sessions
 
 LazyAI keeps one session alive per project when its terminal client detaches.

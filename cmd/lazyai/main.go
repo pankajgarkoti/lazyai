@@ -55,6 +55,7 @@ func parseLaunchOptions(args []string) (launchOptions, error) {
 		fmt.Fprintln(os.Stderr, "Usage:")
 		fmt.Fprintln(os.Stderr, "  lazyai [options] [-- opencode args...]  Start or reattach a project session")
 		fmt.Fprintln(os.Stderr, "  lazyai list                            List known project sessions")
+		fmt.Fprintln(os.Stderr, "  lazyai --version                       Print the application version")
 		fmt.Fprintln(os.Stderr, "  lazyai stop [--dir DIR]                Stop a project session and all its workstreams")
 		fmt.Fprintln(os.Stderr, "\nSession controls:")
 		fmt.Fprintln(os.Stderr, "  Ctrl+Q detaches without stopping work. Run lazyai for the project to reattach.")
