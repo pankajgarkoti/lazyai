@@ -83,15 +83,30 @@ CREATE TABLE IF NOT EXISTS runtime_sessions (
 );
 `
 
+// schemaVersion is the current PRAGMA user_version. Version 0 is the baseline
+// `schema`; each later version is one entry in `migrations`, applied in order
+// on Open. Migrations are additive only: an older binary keeps working on a
+// newer database because every query names its columns.
+const schemaVersion = 1
+
+var migrations = []string{
+	// v1: workstream identity. Old rows read back with empty nickname and
+	// description, which callers treat as "use the branch name".
+	`ALTER TABLE worktrees ADD COLUMN nickname TEXT NOT NULL DEFAULT '';
+	 ALTER TABLE worktrees ADD COLUMN description TEXT NOT NULL DEFAULT '';`,
+}
+
 // Worktree is a worktree LazyAI has run a workstream in.
 type Worktree struct {
-	Repo       string // main checkout top level
-	Branch     string
-	Path       string
-	Linked     bool // false for the main checkout itself
-	CreatedAt  time.Time
-	LastOpened time.Time
-	Dormant    bool
+	Repo        string // main checkout top level
+	Branch      string
+	Path        string
+	Linked      bool // false for the main checkout itself
+	CreatedAt   time.Time
+	LastOpened  time.Time
+	Dormant     bool
+	Nickname    string // human name; "" means the branch
+	Description string // optional reminder of what the workstream is for
 }
 
 // RuntimeSession is one project-scoped supervisor known to LazyAI.
@@ -142,7 +157,43 @@ func Open(path string) (*DB, error) {
 		db.Close()
 		return nil, fmt.Errorf("notes schema: %w", err)
 	}
+	if err := migrate(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("notes migration: %w", err)
+	}
 	return &DB{Path: path, db: db}, nil
+}
+
+// migrate brings the database from its recorded user_version up to
+// schemaVersion, one version per transaction.
+func migrate(db *sql.DB) error {
+	var have int
+	if err := db.QueryRow(`PRAGMA user_version`).Scan(&have); err != nil {
+		return err
+	}
+	if have > schemaVersion {
+		// A newer LazyAI wrote this database. Additive migrations mean the
+		// columns we know about are still there; keep going read/write.
+		return nil
+	}
+	for v := have; v < schemaVersion; v++ {
+		tx, err := db.Begin()
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(migrations[v]); err != nil {
+			tx.Rollback() //nolint:errcheck
+			return fmt.Errorf("to version %d: %w", v+1, err)
+		}
+		if _, err := tx.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, v+1)); err != nil {
+			tx.Rollback() //nolint:errcheck
+			return err
+		}
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Close releases the database.
@@ -231,6 +282,18 @@ func (d *DB) UpsertWorktree(repo, branch, path string, linked bool) error {
 	return err
 }
 
+// SetWorktreeIdentity stores the human-facing nickname and description for a
+// branch. The row is created (not yet opened, not dormant) when it does not
+// exist so identity chosen before launch survives a failed launch.
+func (d *DB) SetWorktreeIdentity(repo, branch, nickname, description string) error {
+	ts := now()
+	_, err := d.db.Exec(`INSERT INTO worktrees(repo, branch, path, linked, created_at, last_opened, dormant, nickname, description)
+		VALUES (?,?,'',1,?,?,0,?,?)
+		ON CONFLICT(repo, branch) DO UPDATE SET nickname = excluded.nickname, description = excluded.description`,
+		repo, branch, ts, ts, nickname, description)
+	return err
+}
+
 // SetDormant marks a worktree as archived (or wakes it).
 func (d *DB) SetDormant(repo, branch string, dormant bool) error {
 	v := 0
@@ -241,14 +304,16 @@ func (d *DB) SetDormant(repo, branch string, dormant bool) error {
 	return err
 }
 
+const worktreeColumns = `repo, branch, path, linked, created_at, last_opened, dormant, nickname, description`
+
 // Worktrees lists every worktree recorded for a repo, most recently opened first.
 func (d *DB) Worktrees(repo string) ([]Worktree, error) {
-	return d.queryWorktrees(`SELECT repo, branch, path, linked, created_at, last_opened, dormant FROM worktrees WHERE repo = ? ORDER BY last_opened DESC`, repo)
+	return d.queryWorktrees(`SELECT `+worktreeColumns+` FROM worktrees WHERE repo = ? ORDER BY last_opened DESC`, repo)
 }
 
 // Dormant lists the archived worktrees of a repo.
 func (d *DB) Dormant(repo string) ([]Worktree, error) {
-	return d.queryWorktrees(`SELECT repo, branch, path, linked, created_at, last_opened, dormant FROM worktrees WHERE repo = ? AND dormant = 1 ORDER BY last_opened DESC`, repo)
+	return d.queryWorktrees(`SELECT `+worktreeColumns+` FROM worktrees WHERE repo = ? AND dormant = 1 ORDER BY last_opened DESC`, repo)
 }
 
 func (d *DB) queryWorktrees(q string, args ...any) ([]Worktree, error) {
@@ -262,7 +327,7 @@ func (d *DB) queryWorktrees(q string, args ...any) ([]Worktree, error) {
 		var w Worktree
 		var linked, dormant int
 		var created, opened string
-		if err := rows.Scan(&w.Repo, &w.Branch, &w.Path, &linked, &created, &opened, &dormant); err != nil {
+		if err := rows.Scan(&w.Repo, &w.Branch, &w.Path, &linked, &created, &opened, &dormant, &w.Nickname, &w.Description); err != nil {
 			return nil, err
 		}
 		w.Linked, w.Dormant = linked == 1, dormant == 1

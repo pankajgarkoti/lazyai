@@ -58,6 +58,9 @@ func TestSupervisorSurvivesDetachAndReattachesToScreen(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "lazyai.db")
 	project := t.TempDir()
 	socket := filepath.Join(os.TempDir(), fmt.Sprintf("lazyai-supervisor-%d-%d.sock", os.Getpid(), time.Now().UnixNano()))
+	// The child prints LATER only once the test has detached (flag file), so
+	// the assertion below does not depend on scheduler speed.
+	flag := filepath.Join(project, "detached")
 	done := make(chan error, 1)
 	go func() {
 		done <- Serve(Config{
@@ -66,7 +69,7 @@ func TestSupervisorSurvivesDetachAndReattachesToScreen(t *testing.T) {
 			SocketPath:    socket,
 			DBPath:        dbPath,
 			Command:       "/bin/sh",
-			Args:          []string{"-c", "printf 'READY\\n'; sleep 0.2; printf 'LATER\\n'; sleep 30"},
+			Args:          []string{"-c", "printf 'READY\\n'; while [ ! -e \"$0\" ]; do sleep 0.05; done; printf 'LATER\\n'; sleep 30", flag},
 			Width:         40,
 			Height:        8,
 		})
@@ -86,8 +89,11 @@ func TestSupervisorSurvivesDetachAndReattachesToScreen(t *testing.T) {
 	if err := first.Close(); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(flag, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
 
-	time.Sleep(350 * time.Millisecond)
+	time.Sleep(350 * time.Millisecond) // detached progress happens with no client
 	second := dialEventually(t, socket)
 	defer second.Close()
 	if screen := waitForScreen(t, second, "LATER"); !strings.Contains(screen, "READY") {

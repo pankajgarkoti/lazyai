@@ -338,6 +338,21 @@ func TestMouseSelectsWorktreeBaseChoice(t *testing.T) {
 		h.key(string(r))
 	}
 	h.key("enter")
+	if h.m.promptStage != stageIdentity {
+		t.Fatal("new branch should be named first")
+	}
+	// Clicking the description row focuses that field; enter continues.
+	rw0, _ := h.m.rightInner()
+	for y, row := range h.m.renderPrompt(rw0) {
+		if strings.Contains(stripANSI(row), "description") {
+			h.mouse(h.m.sidebarWidth+4, y+1, tea.MouseButtonLeft)
+			break
+		}
+	}
+	if h.m.field != 1 {
+		t.Fatalf("click should focus description, field=%d", h.m.field)
+	}
+	h.key("enter")
 	if h.m.promptStage != stageBase {
 		t.Fatal("new branch should reach base selection")
 	}
@@ -802,6 +817,19 @@ func TestWorktreePromptCreatesWorktreeAndWorkstream(t *testing.T) {
 	}
 	h.key("j") // plain letters must go to the input, not navigation
 	h.key("enter")
+	// Identity stage: nickname prefilled with the branch, description optional.
+	if h.m.promptStage != stageIdentity || h.m.nick.Value() != "feat/xj" || h.m.field != 0 {
+		t.Fatalf("identity stage: stage=%v nick=%q field=%d", h.m.promptStage, h.m.nick.Value(), h.m.field)
+	}
+	view = stripANSI(h.m.View())
+	if !strings.Contains(view, "nickname") || !strings.Contains(view, "description") {
+		t.Fatalf("identity form missing fields:\n%s", view)
+	}
+	h.key("tab")
+	for _, r := range "search index" {
+		h.key(string(r))
+	}
+	h.key("enter")
 	h.key("m") // new branch: base it on main
 	if h.m.prompting {
 		t.Fatal("prompt should close after choosing the base")
@@ -809,6 +837,12 @@ func TestWorktreePromptCreatesWorktreeAndWorkstream(t *testing.T) {
 	want := filepath.Join(realpath(h.root), ".worktrees", "feat-xj")
 	if len(h.m.streams) != 2 || h.m.cur != 1 || h.m.root != want || h.m.name != "feat/xj" {
 		t.Fatalf("streams=%d cur=%d root=%q name=%q", len(h.m.streams), h.m.cur, h.m.root, h.m.name)
+	}
+	if h.m.nickname != "feat/xj" || h.m.description != "search index" {
+		t.Fatalf("identity not applied: nick=%q desc=%q", h.m.nickname, h.m.description)
+	}
+	if v := stripANSI(h.m.View()); !strings.Contains(v, "search index") {
+		t.Fatalf("strip detail row should show the description:\n%s", v)
 	}
 	if _, err := os.Stat(filepath.Join(want, "a.go")); err != nil {
 		t.Fatal("worktree not checked out")
@@ -958,35 +992,38 @@ func TestHookEventsRouteToTheirStreamAndFlagAttention(t *testing.T) {
 	os.WriteFile(p, []byte(goFile), 0o644)
 	// Events from stream 1's plugin while stream 2 is current.
 	h.update(HookMsg{Event: hooks.Event{Token: first.token, Type: "tool.before", Tool: "read"}})
-	if !first.busy || h.m.busy {
-		t.Fatalf("busy flag misrouted: first=%v cur=%v", first.busy, h.m.busy)
+	if !first.working() || h.m.working() {
+		t.Fatalf("working flag misrouted: first=%v cur=%v", first.working(), h.m.working())
 	}
 	h.update(HookMsg{Event: hooks.Event{Token: first.token, Type: "file.read", Path: p}})
 	h.update(HookMsg{Event: hooks.Event{Token: first.token, Type: "tool.after", Tool: "read"}})
-	if first.busy || first.ledger.Len() != 1 || h.m.ledger.Len() != 0 {
+	if first.working() || first.ledger.Len() != 1 || h.m.ledger.Len() != 0 {
 		t.Fatalf("ledger misrouted: first=%d cur=%d", first.ledger.Len(), h.m.ledger.Len())
 	}
 	h.update(HookMsg{Event: hooks.Event{Token: first.token, Type: "show", Locations: []hooks.Location{{Path: p, Line: 2, Text: "look"}}}})
-	if h.m.cur != 1 || !first.needsYou() || first.showSet == nil {
-		t.Fatalf("show on a background stream must not steal focus: cur=%d needsYou=%v set=%v", h.m.cur, first.needsYou(), first.showSet != nil)
+	if h.m.cur != 1 || !first.unseen || first.showSet == nil {
+		t.Fatalf("show on a background stream must not steal focus: cur=%d unseen=%v set=%v", h.m.cur, first.unseen, first.showSet != nil)
 	}
-	if !strings.Contains(stripANSI(h.m.View()), "!") {
-		t.Fatal("strip should flag the background stream")
+	if !strings.Contains(stripANSI(h.m.View()), theme.Unseen) {
+		t.Fatal("strip should flag the background stream as unseen")
 	}
 	// Further agent activity must not clear a pending show; only visiting does.
 	h.update(HookMsg{Event: hooks.Event{Token: first.token, Type: "tool.before", Tool: "read"}})
 	h.update(HookMsg{Event: hooks.Event{Token: first.token, Type: "tool.after", Tool: "read"}})
-	if !first.needsYou() {
-		t.Fatal("pending show flag cleared by unrelated tool activity")
+	if !first.unseen {
+		t.Fatal("unseen flag cleared by unrelated tool activity")
 	}
 	h.update(HookMsg{Event: hooks.Event{Token: first.token, Type: "attention"}})
+	if !strings.Contains(stripANSI(h.m.View()), theme.Attention) {
+		t.Fatal("attention outranks unseen in the strip")
+	}
 	h.update(HookMsg{Event: hooks.Event{Token: first.token, Type: "tool.before", Tool: "edit"}})
 	if first.attention {
 		t.Fatal("a permission attention is resolved once a tool runs")
 	}
 	h.update(LeaderMsg{})
 	h.key("1")
-	if !h.m.normal() || h.m.needsYou() || h.m.showSet == nil {
+	if !h.m.normal() || h.m.unseen || h.m.showSet == nil {
 		t.Fatalf("switching lands in normal with the set ready: mode=%v focus=%v", h.m.mode, h.m.focus)
 	}
 	h.key("s")
@@ -1142,10 +1179,11 @@ func TestTerminalModeStartsShellPerStreamAndFollowsFocusRules(t *testing.T) {
 
 type fakeNotes struct{ recs []string }
 
-func (f *fakeNotes) UpsertWorktree(string, string, string, bool) error { return nil }
-func (f *fakeNotes) SetDormant(string, string, bool) error             { return nil }
-func (f *fakeNotes) Worktrees(string) ([]notes.Worktree, error)        { return nil, nil }
-func (f *fakeNotes) SetState(string, string, string) error             { return nil }
+func (f *fakeNotes) UpsertWorktree(string, string, string, bool) error        { return nil }
+func (f *fakeNotes) SetWorktreeIdentity(string, string, string, string) error { return nil }
+func (f *fakeNotes) SetDormant(string, string, bool) error                    { return nil }
+func (f *fakeNotes) Worktrees(string) ([]notes.Worktree, error)               { return nil, nil }
+func (f *fakeNotes) SetState(string, string, string) error                    { return nil }
 
 func (f *fakeNotes) Record(root, branch, session string, set show.Set) error {
 	f.recs = append(f.recs, fmt.Sprintf("%s|%s|%s|%d", filepath.Base(root), branch, set.Title, len(set.Locations)))
@@ -1244,7 +1282,20 @@ func newMemStore() *memStore {
 	return &memStore{wts: map[string]*notes.Worktree{}, state: map[string]string{}}
 }
 func (m *memStore) UpsertWorktree(repo, branch, path string, linked bool) error {
+	if w, ok := m.wts[branch]; ok {
+		w.Path, w.Linked, w.Dormant = path, linked, false
+		return nil
+	}
 	m.wts[branch] = &notes.Worktree{Repo: repo, Branch: branch, Path: path, Linked: linked}
+	return nil
+}
+func (m *memStore) SetWorktreeIdentity(repo, branch, nickname, description string) error {
+	w, ok := m.wts[branch]
+	if !ok {
+		w = &notes.Worktree{Repo: repo, Branch: branch, Linked: true}
+		m.wts[branch] = w
+	}
+	w.Nickname, w.Description = nickname, description
 	return nil
 }
 func (m *memStore) SetDormant(repo, branch string, dormant bool) error {
@@ -1274,6 +1325,14 @@ func TestArchiveMakesWorktreeDormantAndPromptWakesIt(t *testing.T) {
 	h.update(EscapeMsg{})
 	h.key("w")
 	for _, r := range "feat/z" {
+		h.key(string(r))
+	}
+	h.key("enter")
+	// Name it: the nickname is persisted before launch and survives archive/wake.
+	for range len("feat/z") {
+		h.key("backspace")
+	}
+	for _, r := range "Zed" {
 		h.key(string(r))
 	}
 	h.key("enter")
@@ -1315,6 +1374,48 @@ func TestArchiveMakesWorktreeDormantAndPromptWakesIt(t *testing.T) {
 	if len(h.m.streams) != 2 || h.m.root != wt || st.wts["feat/z"].Dormant {
 		t.Fatalf("wake: streams=%d root=%q dormant=%v", len(h.m.streams), h.m.root, st.wts["feat/z"].Dormant)
 	}
+	if h.m.nickname != "Zed" || st.wts["feat/z"].Nickname != "Zed" {
+		t.Fatalf("identity lost across archive/wake: mem=%q db=%q", h.m.nickname, st.wts["feat/z"].Nickname)
+	}
+	if !strings.Contains(stripANSI(h.m.View()), "2 Zed") {
+		t.Fatalf("strip should show the nickname:\n%s", stripANSI(h.m.View()))
+	}
+	// e renames the current workstream without touching git.
+	h.update(EscapeMsg{})
+	h.key("e")
+	if !h.m.prompting || !h.m.editing || h.m.promptStage != stageIdentity || h.m.nick.Value() != "Zed" {
+		t.Fatalf("e should open identity edit: prompting=%v editing=%v stage=%v nick=%q", h.m.prompting, h.m.editing, h.m.promptStage, h.m.nick.Value())
+	}
+	for range 3 {
+		h.key("backspace")
+	}
+	for _, r := range "Zeta" {
+		h.key(string(r))
+	}
+	h.key("tab")
+	for _, r := range "greek letters" {
+		h.key(string(r))
+	}
+	h.key("enter")
+	if h.m.prompting || h.m.nickname != "Zeta" || h.m.description != "greek letters" || h.m.name != "feat/z" {
+		t.Fatalf("rename: prompting=%v nick=%q desc=%q branch=%q", h.m.prompting, h.m.nickname, h.m.description, h.m.name)
+	}
+	if st.wts["feat/z"].Nickname != "Zeta" || st.wts["feat/z"].Description != "greek letters" {
+		t.Fatalf("rename not persisted: %+v", st.wts["feat/z"])
+	}
+	// An empty nickname is rejected with the value kept for correction.
+	h.key("e")
+	for range 4 {
+		h.key("backspace")
+	}
+	h.key("enter")
+	if !h.m.prompting || h.m.notice == "" || h.m.nickname != "Zeta" {
+		t.Fatalf("empty nickname must be rejected: prompting=%v notice=%q", h.m.prompting, h.m.notice)
+	}
+	h.key("esc")
+	if h.m.prompting {
+		t.Fatal("esc cancels the rename")
+	}
 }
 
 func commitIn(t *testing.T, dir, file string) {
@@ -1338,6 +1439,14 @@ func openWorktreePrompt(h *harness, name string) {
 	h.key("enter")
 }
 
+// newWorktree drives the form for a brand-new branch: name, accept the
+// prefilled nickname, pick the base.
+func newWorktree(h *harness, name, base string) {
+	openWorktreePrompt(h, name)
+	h.key("enter")
+	h.key(base)
+}
+
 func TestMainPinnedOnTopAndWorktreesAppendOnly(t *testing.T) {
 	h := newHarness(t)
 	h.writeFile(t, "a.go", 3)
@@ -1345,10 +1454,8 @@ func TestMainPinnedOnTopAndWorktreesAppendOnly(t *testing.T) {
 	h.m.refreshRepo()
 	h.m.name = "main"
 	h.update(EscapeMsg{})
-	openWorktreePrompt(h, "feat/one")
-	h.key("m") // base: main
-	openWorktreePrompt(h, "feat/two")
-	h.key("m")
+	newWorktree(h, "feat/one", "m") // base: main
+	newWorktree(h, "feat/two", "m")
 	names := func() string {
 		var out []string
 		for _, s := range h.m.streams {
@@ -1376,8 +1483,7 @@ func TestMainPinnedOnTopAndWorktreesAppendOnly(t *testing.T) {
 	}
 	// A new one is appended at the end even when created from main.
 	h.update(EscapeMsg{})
-	openWorktreePrompt(h, "feat/three")
-	h.key("m")
+	newWorktree(h, "feat/three", "m")
 	if names() != "main,feat/one,feat/two,feat/three" {
 		t.Fatalf("append %s", names())
 	}
@@ -1391,8 +1497,12 @@ func TestNewWorktreePromptAsksForBaseBranch(t *testing.T) {
 	h.m.name = "main"
 	h.update(EscapeMsg{})
 	openWorktreePrompt(h, "feat/one")
-	if !h.m.prompting || h.m.promptStage != stageBase {
-		t.Fatalf("should ask for the base: prompting=%v stage=%v", h.m.prompting, h.m.promptStage)
+	if !h.m.prompting || h.m.promptStage != stageIdentity {
+		t.Fatalf("should name the workstream first: prompting=%v stage=%v", h.m.prompting, h.m.promptStage)
+	}
+	h.key("enter")
+	if h.m.promptStage != stageBase {
+		t.Fatalf("should ask for the base: stage=%v", h.m.promptStage)
 	}
 	view := stripANSI(h.m.View())
 	if !strings.Contains(view, "m main") || !strings.Contains(view, "c main (current)") || hintsOf(h) != "ctrl+q:detach" {
@@ -1405,8 +1515,7 @@ func TestNewWorktreePromptAsksForBaseBranch(t *testing.T) {
 	// Commit something only on feat/one, then branch feat/two off the *current* worktree.
 	commitIn(t, h.m.root, "only-on-one.txt")
 	h.update(EscapeMsg{})
-	openWorktreePrompt(h, "feat/two")
-	h.key("c")
+	newWorktree(h, "feat/two", "c")
 	if h.m.name != "feat/two" {
 		t.Fatalf("on %q", h.m.name)
 	}
@@ -1415,12 +1524,12 @@ func TestNewWorktreePromptAsksForBaseBranch(t *testing.T) {
 	}
 	// And one off main does not have it.
 	h.update(EscapeMsg{})
-	openWorktreePrompt(h, "feat/three")
-	h.key("m")
+	newWorktree(h, "feat/three", "m")
 	if _, err := os.Stat(filepath.Join(h.m.root, "only-on-one.txt")); err == nil {
 		t.Fatal("feat/three should be based on main")
 	}
-	// Existing branches skip the question; esc at the base step goes back to the name.
+	// Existing branches skip naming and the question; esc walks back one
+	// stage at a time: base -> identity -> name -> closed.
 	h.update(EscapeMsg{})
 	openWorktreePrompt(h, "feat/one")
 	if h.m.prompting {
@@ -1428,13 +1537,21 @@ func TestNewWorktreePromptAsksForBaseBranch(t *testing.T) {
 	}
 	h.update(EscapeMsg{})
 	openWorktreePrompt(h, "feat/four")
+	h.key("enter")
+	if h.m.promptStage != stageBase {
+		t.Fatalf("stage=%v", h.m.promptStage)
+	}
+	h.key("esc")
+	if !h.m.prompting || h.m.promptStage != stageIdentity || h.m.nick.Value() != "feat/four" {
+		t.Fatalf("esc should return to identity: prompting=%v stage=%v nick=%q", h.m.prompting, h.m.promptStage, h.m.nick.Value())
+	}
 	h.key("esc")
 	if !h.m.prompting || h.m.promptStage != stageName || h.m.prompt.Value() != "feat/four" {
 		t.Fatalf("esc should return to the name step: prompting=%v stage=%v value=%q", h.m.prompting, h.m.promptStage, h.m.prompt.Value())
 	}
 	h.key("esc")
 	if h.m.prompting {
-		t.Fatal("second esc cancels")
+		t.Fatal("third esc cancels")
 	}
 }
 
@@ -1510,10 +1627,13 @@ func TestWorktreePromptFiltersBranchesLiveAndSelects(t *testing.T) {
 		t.Fatalf("expected no matches, got %v", h.m.matches)
 	}
 	h.key("enter")
-	if !h.m.prompting || h.m.promptStage != stageBase {
-		t.Fatal("new name should ask for a base")
+	if !h.m.prompting || h.m.promptStage != stageIdentity {
+		t.Fatal("new name should ask for its identity")
 	}
 	h.key("esc")
+	if h.m.promptStage != stageName {
+		t.Fatal("esc from identity returns to the name")
+	}
 	// Backspace re-filters; ctrl+n / ctrl+p / tab cycle; up past the top clears the selection.
 	for i := 0; i < len("brandnew"); i++ {
 		h.key("backspace")

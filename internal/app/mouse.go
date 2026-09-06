@@ -16,6 +16,12 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	if m.confirmQuit {
 		return m.quitMouse(msg)
 	}
+	if m.setup != nil {
+		return m.setupMouse(msg)
+	}
+	if m.contract != nil {
+		return m.contractMouse(msg)
+	}
 	if m.prompting {
 		return m.promptMouse(msg)
 	}
@@ -33,6 +39,12 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	}
 	if msg.X >= contentX && msg.X < contentX+rw && msg.Y >= 1 && msg.Y < 1+rh {
 		if m.mode.live() {
+			// A click on the agent pane in strict mode is an attempt to type
+			// there: it goes through the contract form like i does.
+			if m.mode == ModeInteractive && m.focus != FocusContent && m.strictActive() && msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
+				m.openContract()
+				return m, nil
+			}
 			m.focus = FocusContent
 			m.syncKeyboard()
 			m.forwardMouse(msg, msg.X-contentX, msg.Y-1)
@@ -62,7 +74,7 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	firstRow := len(m.streams) + 4
+	firstRow := m.stripRows() + 4
 	if msg.Y < firstRow {
 		return m, nil
 	}
@@ -140,9 +152,17 @@ func (m Model) promptMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if msg.Button == tea.MouseButtonRight {
-		if m.promptStage == stageBase {
+		// Right click backs out one stage at a time, like Esc.
+		switch {
+		case m.promptStage == stageBase:
+			m.enterIdentity(m.nick.Value(), m.desc.Value())
+		case m.promptStage == stageIdentity && !m.editing:
 			m.promptStage = stageName
-		} else {
+			m.nick.Blur()
+			m.desc.Blur()
+			m.prompt.Focus()
+			m.refilter()
+		default:
 			m.closePrompt()
 		}
 		return m, nil
@@ -157,6 +177,22 @@ func (m Model) promptMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	}
 	if m.promptStage == stageBase {
 		return m.baseChoiceMouse(msg, contentX, rw)
+	}
+	if m.promptStage == stageIdentity {
+		if msg.Button != tea.MouseButtonLeft {
+			return m, nil
+		}
+		rows := m.renderPrompt(rw)
+		if msg.Y-1 < len(rows) {
+			line := ansi.Strip(rows[msg.Y-1])
+			switch {
+			case strings.Contains(line, "nickname"):
+				m.setField(0)
+			case strings.Contains(line, "description"):
+				m.setField(1)
+			}
+		}
+		return m, nil
 	}
 	if len(m.matches) == 0 {
 		return m, nil
@@ -215,7 +251,7 @@ func labelCellBounds(line, label string) (start, end int, ok bool) {
 
 func (m Model) sidebarRows() int {
 	_, h := m.rightInner()
-	return max(0, h-len(m.streams)-3)
+	return max(0, h-m.stripRows()-3)
 }
 
 func (m *Model) ensureSidebarSelectionVisible() {

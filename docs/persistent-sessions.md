@@ -137,9 +137,18 @@ Build with `make build`, then run:
 ```sh
 python3 scripts/test-sessions-tmux.py --binary ./bin/lazyai --real-opencode
 ```
- The drive uses a dedicated tmux server
+The drive uses a dedicated tmux server
 and disposable Git projects. It checks terminal modes, literal multiline paste,
-mouse input, resize, same-process detach/reattach, takeover, signal cleanup,
-worktree options and nested process cleanup. With `--real-opencode`, it also
-checks that real OpenCode displays a prompt and retains an unsent typed draft
-across reattachment; it does not submit a model request.
+mouse clicks and wheel (forwarded into the child pane, and over LazyAI's own
+Show list), resize, same-process detach/reattach, takeover, signal cleanup,
+worktree options, the workstream identity form (nickname and description shown
+in the strip), nested process cleanup, and the strict contract form sending one
+bracketed paste of deterministic YAML followed by Enter. With
+`--real-opencode`, it also checks that the bundled plugin loads (status bar
+shows `● plugin`) and that real OpenCode displays a prompt and retains an
+unsent typed draft across reattachment; it does not submit a model request.
+
+Existing supervisors keep the code and configuration they started with;
+restart a project session (`lazyai stop --dir DIR`, then `lazyai`) to pick up
+a new binary or a changed `.lazyai/config.yaml` for the initial load
+(`Ctrl+Space` `c` reloads the file inside a running session).

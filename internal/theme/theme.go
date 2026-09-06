@@ -51,7 +51,9 @@ const (
 	Gradient     = "░▒▓"    // lualine search-count lead-in
 	Dot          = "●"      // plugin connected
 	Ring         = "○"      // plugin waiting
-	Spinner      = "⟳"      // workstream busy (tool call in flight)
+	Spinner      = "⟳"      // workstream working (static fallback frame)
+	Unseen       = "◆"      // background output / show set not looked at yet
+	Attention    = "!"      // OpenCode is waiting on the user
 	Modified     = "•"      // lualine modified marker
 	IconFiles    = "\uf07c" //
 	IconShow     = "\uf002" //
@@ -69,6 +71,14 @@ const (
 	FloatH, FloatV                     = "─", "│"
 	ChromaStyle                        = "catppuccin-mocha"
 )
+
+// SpinnerFrames animate a working workstream; Frame picks one for a tick.
+var SpinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+
+// Frame returns the spinner glyph for tick n.
+func Frame(n int) string {
+	return SpinnerFrames[((n%len(SpinnerFrames))+len(SpinnerFrames))%len(SpinnerFrames)]
+}
 
 // Border shape used for both panes.
 var Border = lipgloss.RoundedBorder()

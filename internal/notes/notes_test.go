@@ -1,6 +1,7 @@
 package notes
 
 import (
+	"database/sql"
 	"path/filepath"
 	"testing"
 	"time"
@@ -81,6 +82,83 @@ func TestRuntimeSessionRegistryPersistsStatus(t *testing.T) {
 	if len(sessions) != 1 || sessions[0].Project != "/repo" || sessions[0].PID != 42 || sessions[0].Status != "stale" {
 		t.Fatalf("sessions=%+v", sessions)
 	}
+}
+
+// TestMigrationAddsIdentityColumnsToVersion0Database opens a database created
+// by the pre-identity schema and checks the versioned migration adds nickname
+// and description without touching existing rows or re-running.
+func TestMigrationAddsIdentityColumnsToVersion0Database(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "n.db")
+	raw, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := raw.Exec(schema); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := raw.Exec(`INSERT INTO worktrees(repo, branch, path, linked, created_at, last_opened, dormant)
+		VALUES ('/repo', 'feat/old', '/repo/.worktrees/feat-old', 1, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', 1)`); err != nil {
+		t.Fatal(err)
+	}
+	var v0 int
+	if err := raw.QueryRow(`PRAGMA user_version`).Scan(&v0); err != nil || v0 != 0 {
+		t.Fatalf("fixture user_version=%d err=%v", v0, err)
+	}
+	raw.Close()
+
+	db, err := Open(path)
+	if err != nil {
+		t.Fatalf("migration failed: %v", err)
+	}
+	if v := db.userVersion(t); v != schemaVersion {
+		t.Fatalf("user_version=%d want %d", v, schemaVersion)
+	}
+	all, err := db.Worktrees("/repo")
+	if err != nil || len(all) != 1 {
+		t.Fatalf("worktrees=%v err=%v", all, err)
+	}
+	if all[0].Branch != "feat/old" || !all[0].Dormant || all[0].Nickname != "" || all[0].Description != "" {
+		t.Fatalf("old row changed: %+v", all[0])
+	}
+	if err := db.SetWorktreeIdentity("/repo", "feat/old", "Login fix", "remember the cookie bug"); err != nil {
+		t.Fatal(err)
+	}
+	// A wake (upsert) must not clobber identity.
+	if err := db.UpsertWorktree("/repo", "feat/old", "/repo/.worktrees/feat-old", true); err != nil {
+		t.Fatal(err)
+	}
+	all, _ = db.Worktrees("/repo")
+	if all[0].Nickname != "Login fix" || all[0].Description != "remember the cookie bug" || all[0].Dormant {
+		t.Fatalf("identity lost on upsert: %+v", all[0])
+	}
+	// Identity for a branch that was never opened is stored too (agent setup
+	// records identity before launch).
+	if err := db.SetWorktreeIdentity("/repo", "feat/new", "New", ""); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	// Reopening is idempotent.
+	db, err = Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if v := db.userVersion(t); v != schemaVersion {
+		t.Fatalf("user_version after reopen=%d", v)
+	}
+	all, _ = db.Worktrees("/repo")
+	if len(all) != 2 {
+		t.Fatalf("rows=%d", len(all))
+	}
+}
+
+func (d *DB) userVersion(t *testing.T) int {
+	t.Helper()
+	var v int
+	if err := d.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil {
+		t.Fatal(err)
+	}
+	return v
 }
 
 func TestWorktreeRegistryAndRepoState(t *testing.T) {

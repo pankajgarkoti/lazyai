@@ -45,6 +45,8 @@ func (m Model) View() string {
 	switch {
 	case m.confirmQuit:
 		body = strings.Join(m.renderQuitPrompt(rw), "\n")
+	case m.setup != nil:
+		body = strings.Join(m.renderSetupPrompt(rw), "\n")
 	case m.prompting:
 		body = strings.Join(m.renderPrompt(rw), "\n")
 	case m.help:
@@ -58,6 +60,9 @@ func (m Model) View() string {
 		}
 		for len(rows) < rh {
 			rows = append(rows, "")
+		}
+		if m.contract != nil {
+			rows = m.renderContract(rows, rw, rh)
 		}
 		body = strings.Join(rows, "\n")
 	case m.mode == ModeDiff:
@@ -87,10 +92,14 @@ func (m Model) renderStatus() string {
 	right := m.renderStatusRight()
 
 	// Middle: a transient notice, otherwise key hints. (Show notes live in
-	// the diagnostic float next to the code, not here.)
+	// the diagnostic float next to the code, not here.) A configuration
+	// error stays visible until it is fixed and reloaded.
 	mid := " " + m.renderHint()
-	if m.notice != "" {
+	switch {
+	case m.notice != "":
 		mid = theme.Notice.Render(" " + theme.IconWarn + " " + m.notice)
+	case m.configErr != "":
+		mid = theme.Notice.Render(" "+theme.IconWarn+" config error") + theme.StatusDim.Render(" · ctrl+space c reloads · ") + theme.Notice.Render(m.configErr)
 	}
 
 	avail := m.width - lipgloss.Width(left) - lipgloss.Width(right)
@@ -109,11 +118,24 @@ func (m Model) renderStatus() string {
 // renderMode is a single Neovim-style mode block. Switching keys belong in
 // help, not in front of the mode's label.
 func (m Model) renderMode() string {
+	if m.contract != nil {
+		return theme.ModeInsert.Render(" CONTRACT ")
+	}
+	freestyle := m.stream != nil && m.project.Interactive.Strict && m.configErr == "" && m.freestyle
 	if m.normal() {
+		if freestyle {
+			return theme.ModeNormal.Render(" NORMAL·FREE ")
+		}
 		return theme.ModeNormal.Render(" NORMAL ")
 	}
 	switch m.mode {
 	case ModeInteractive:
+		switch {
+		case freestyle:
+			return theme.ModeInsert.Render(" INTERACTIVE·FREE ")
+		case m.strictActive():
+			return theme.ModeInsert.Render(" INTERACTIVE·STRICT ")
+		}
 		return theme.ModeInsert.Render(" INTERACTIVE ")
 	case ModeTerminal:
 		return theme.ModeTerm.Render(" TERMINAL ")
@@ -165,14 +187,12 @@ func (m Model) renderHint() string {
 	type kv struct{ k, v string }
 	var hints []kv
 	switch {
-	case m.confirmQuit:
-		// The choices are displayed in the confirmation float.
-	case m.prompting && m.promptStage == stageBase:
-		// The base choices and controls are already inside the prompt.
+	case m.confirmQuit, m.setup != nil, m.contract != nil:
+		// The choices and controls are displayed inside the float.
 	case m.prompting:
-		// Suggestion controls are already inside the prompt.
+		// Suggestion / field controls are already inside the form.
 	case m.leader:
-		hints = []kv{{"1-9", "workstream"}, {"ctrl+space", "last"}, {"w", "new"}, {"a", "archive"}, {"x", "close"}, {"z", "zoom"}}
+		hints = []kv{{"1-9", "workstream"}, {"ctrl+space", "last"}, {"w", "new"}, {"e", "rename"}, {"a", "archive"}, {"x", "close"}, {"f", "freestyle"}, {"c", "reload config"}, {"z", "zoom"}}
 	case m.help:
 		hints = []kv{{"?", "close"}, {"esc", "close"}}
 	case m.mode == ModeInteractive && m.focus == FocusContent:
@@ -181,6 +201,9 @@ func (m Model) renderHint() string {
 		hints = []kv{{"esc", "normal"}, {"jk", "esc→shell"}, {"ctrl+space", "workstreams"}, {"ctrl+z", "zoom"}}
 	case m.normal():
 		hints = []kv{{"w", "worktree"}, {"a", "archive"}, {"?", "help"}}
+		if m.strictActive() {
+			hints = append([]kv{{"i", "contract"}}, hints...)
+		}
 	case m.mode == ModeDiff && m.focus == FocusSidebar:
 		hints = []kv{{"j/k", "file"}, {"enter", "hunks"}, {"r", "reference"}}
 		hints = append(hints, kv{"esc", "normal"}, kv{"i", "opencode"})
@@ -211,22 +234,47 @@ func (m Model) renderQuitPrompt(w int) []string {
 
 // Sidebar -----------------------------------------------------------------
 
+// streamGlyph is the activity indicator for a stream, by precedence:
+// attention (OpenCode waits on you) > working (tool calls in flight) >
+// unseen (background output you have not looked at) > idle.
+func (m Model) streamGlyph(s *stream) (string, lipgloss.Style) {
+	switch {
+	case s.attention:
+		return theme.Attention, theme.Warn
+	case s.working():
+		return theme.Frame(m.spin), theme.Icon
+	case s.unseen:
+		return theme.Unseen, theme.Warn
+	}
+	return theme.Dot, theme.Dim
+}
+
+// detailRows is 1 when the current workstream shows a second line (branch and
+// description) under its strip row, else 0.
+func (m Model) detailRows() int {
+	if m.stream == nil {
+		return 0
+	}
+	if m.nickname != "" && m.nickname != m.name || m.description != "" {
+		return 1
+	}
+	return 0
+}
+
+// stripRows is the number of rows the workstream strip uses under its title.
+func (m Model) stripRows() int { return len(m.streams) + m.detailRows() }
+
 // renderStreams draws the workstream strip that tops the sidebar in every
-// mode: number, branch, and a state glyph (⟳ working · ! needs you · ● idle).
+// mode: number, nickname and the activity glyph; the current one adds a dim
+// detail row with its branch and description.
 func (m Model) renderStreams(w int) string {
 	var b strings.Builder
 	b.WriteString(sidebarTitle(theme.IconWorktree+" Workstreams", fmt.Sprint(len(m.streams)), w))
 	b.WriteString("\n")
 	for i, s := range m.streams {
-		glyph, gs := theme.Dot, theme.Dim
-		switch {
-		case s.needsYou():
-			glyph, gs = "!", theme.Warn
-		case s.busy:
-			glyph, gs = theme.Spinner, theme.Icon
-		}
+		glyph, gs := m.streamGlyph(s)
 		idx := fmt.Sprintf("%d", i+1)
-		name := ansi.Truncate(s.name, w-len(idx)-4, "…")
+		name := ansi.Truncate(s.displayName(), w-len(idx)-4, "…")
 		gap := w - len(idx) - 1 - lipgloss.Width(name) - 1
 		if gap < 1 {
 			gap = 1
@@ -240,6 +288,14 @@ func (m Model) renderStreams(w int) string {
 			b.WriteString(theme.Index.Render(idx) + " " + name + strings.Repeat(" ", gap) + gs.Render(glyph))
 		}
 		b.WriteString("\n")
+		if i == m.cur && m.detailRows() > 0 {
+			detail := theme.IconBranch + " " + s.name
+			if s.description != "" {
+				detail += " · " + s.description
+			}
+			b.WriteString(theme.Dim.Render(ansi.Truncate("  "+detail, w, "…")))
+			b.WriteString("\n")
+		}
 	}
 	return b.String()
 }
@@ -248,7 +304,7 @@ func (m Model) renderFileList(w, h int) string {
 	var b strings.Builder
 	b.WriteString(m.renderStreams(w))
 	b.WriteString("\n")
-	h -= len(m.streams) + 2
+	h -= m.stripRows() + 2
 	entries := m.ledger.Entries()
 	b.WriteString(sidebarTitle(theme.IconFiles+" Files", fmt.Sprint(len(entries)), w))
 	b.WriteString("\n")
@@ -284,7 +340,7 @@ func (m Model) renderShowList(w, h int) string {
 	var b strings.Builder
 	b.WriteString(m.renderStreams(w))
 	b.WriteString("\n")
-	h -= len(m.streams) + 2
+	h -= m.stripRows() + 2
 	title := "Show"
 	count := ""
 	if m.showSet != nil {
@@ -551,7 +607,9 @@ func renderHelp(w int) []string {
 		{"session lifecycle (available on every screen)", "ctrl+q: detach and keep all work running · reattach: run lazyai for the project · lazyai list: inspect sessions · lazyai stop --dir DIR: stop a project and all workstreams"},
 		{"interactive / terminal (the pane owns the keys)", "esc: normal (pane remains visible, no input) · jk: send ESC into the pane · ctrl+space: workstream leader · ctrl+z: zoom"},
 		{"normal (pane focused out)", "i: opencode · t: terminal · d: diff (when there are changes) · s: show (when the agent pointed at code) · j/k: pick a file for d · enter: back into the pane"},
-		{"workstreams (one OpenCode per git worktree)", "h / l previous / next · w: new or wake a dormant worktree · a: archive (dormant: stops OpenCode, keeps the worktree) · x x: close · from a pane: ctrl+space then h / l / 1-9 / ctrl+space (last) / w / a / x"},
+		{"workstreams (one OpenCode per git worktree)", "h / l previous / next · w: new or wake a dormant worktree (branch, nickname, optional description) · e: rename the current one · a: archive (dormant: stops OpenCode, keeps the worktree) · x x: close · from a pane: ctrl+space then h / l / 1-9 / ctrl+space (last) / w / e / a / x"},
+		{"strip glyphs", "! OpenCode waits on you · spinner: tool calls running · " + theme.Unseen + " output you have not looked at · " + theme.Dot + " idle"},
+		{"strict contracts (.lazyai/config.yaml)", "i / enter: fill the contract form instead of typing · tab: next field · ctrl+s: send · esc: keep draft and close · ctrl+space f: freestyle for this workstream · ctrl+space c: reload config · agents: setup_workstreams tool opens workstreams like w"},
 		{"sidebar", "j/k: select · h/l: workstream · 1-9: jump · enter: focus content · esc: normal · tab: focus"},
 		{"content", "j/k: scroll · ctrl+d/u: half page · g/G: top/bottom · esc/h: back to sidebar"},
 		{"diff", "[ ]: previous/next hunk · r: reference hunk in prompt"},
@@ -618,22 +676,47 @@ func highlightMatch(query, name string) string {
 	return b.String()
 }
 
-// renderPrompt draws the new-worktree prompt as a float.
+// renderPrompt draws the workstream form as floats: branch, then identity
+// (nickname + description), then the base choice for a new branch.
 func (m Model) renderPrompt(w int) []string {
 	where := filepath.Join(m.repo.Main, git.WorktreeDir, "<branch>")
-	rows := []string{theme.DiffHeader.Render(theme.IconWorktree + " new workstream")}
-	body := theme.PromptLabel.Render("branch ›") + " " + theme.PromptText.Render(m.prompt.View())
-	rows = append(rows, renderFloat(theme.IconBranch, theme.DiagInfo, body,
-		fmt.Sprintf("worktree %s from %s · type filters · ↑/↓ pick · enter open/create · esc cancel", where, m.repo.Branch), 1, w)...)
+	title := " new workstream"
+	if m.editing {
+		title = " rename workstream"
+	}
+	rows := []string{theme.DiffHeader.Render(theme.IconWorktree + title)}
+	name := strings.TrimSpace(m.prompt.Value())
+	if m.promptStage == stageName {
+		body := theme.PromptLabel.Render("branch ›") + " " + theme.PromptText.Render(m.prompt.View())
+		rows = append(rows, renderFloat(theme.IconBranch, theme.DiagInfo, body,
+			fmt.Sprintf("worktree %s from %s · type filters · ↑/↓ pick · enter open/create · esc cancel", where, m.repo.Branch), 1, w)...)
+		rows = append(rows, m.renderMatches(w)...)
+		return rows
+	}
+	// Identity (also shown, settled, above the base choice).
+	mark := func(i int) string {
+		if m.promptStage == stageIdentity && m.field == i {
+			return theme.StatusKey.Render("›")
+		}
+		return theme.Dim.Render("·")
+	}
+	body := theme.PromptLabel.Render("branch") + "      " + theme.PromptText.Render(name) + "\n" +
+		mark(0) + " " + theme.PromptLabel.Render("nickname") + "    " + theme.PromptText.Render(m.nick.View()) + theme.Dim.Render(" *") + "\n" +
+		mark(1) + " " + theme.PromptLabel.Render("description") + " " + theme.PromptText.Render(m.desc.View())
+	footer := "tab: next field · enter: continue · esc: back"
+	if m.editing {
+		footer = "tab: next field · enter: save · esc: cancel"
+	}
 	if m.promptStage == stageBase {
-		name := strings.TrimSpace(m.prompt.Value())
+		footer = "named " + strings.TrimSpace(m.nick.Value())
+	}
+	rows = append(rows, renderFloat(theme.IconWorktree, theme.DiagInfo, body, footer, 1, w)...)
+	if m.promptStage == stageBase {
 		choice := theme.PromptLabel.Render("branch off ›") + " " +
 			theme.StatusKey.Render("m") + theme.PromptText.Render(" "+m.mainBranch()+" (main)") + "   " +
 			theme.StatusKey.Render("c") + theme.PromptText.Render(" "+m.repo.Branch+" (current)")
 		rows = append(rows, renderFloat(theme.IconBranch, theme.DiagInfo, choice,
 			fmt.Sprintf("new branch %s · enter: main · esc: back", name), 1, w)...)
-		return rows
 	}
-	rows = append(rows, m.renderMatches(w)...)
 	return rows
 }

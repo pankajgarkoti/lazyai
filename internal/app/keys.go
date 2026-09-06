@@ -46,7 +46,10 @@ func (m Model) applyKey(key string) (tea.Model, tea.Cmd) {
 		m.openQuit()
 		return m, nil
 	case "i":
-		m.enter(ModeInteractive)
+		m.focusAgent()
+		return m, nil
+	case "e":
+		m.openIdentityEdit()
 		return m, nil
 	case "t":
 		m.enter(ModeTerminal)
@@ -110,6 +113,10 @@ func (m Model) sidebarKey(key string) (tea.Model, tea.Cmd) {
 			m.syncKeyboard()
 		}
 	case "enter":
+		if m.mode == ModeInteractive {
+			m.focusAgent() // strict mode routes through the contract form
+			return m, nil
+		}
 		m.focus = FocusContent
 		m.syncKeyboard() // in normal this hands the live pane the keys
 	case "h", "left":

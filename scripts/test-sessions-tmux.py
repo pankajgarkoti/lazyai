@@ -75,14 +75,19 @@ cmd(
 )
 helper = base / "fake-opencode"
 helper.write_text("""#!/usr/bin/env python3
-import os,sys,time,signal,subprocess,tty,select,json,pathlib
+import os,sys,time,signal,subprocess,tty,select,json,pathlib,urllib.request
 base=pathlib.Path(os.environ['DRIVE_DATA'])
 key=pathlib.Path(os.getcwd()).name
 worker=subprocess.Popen([sys.executable,'-c',"import signal,time; signal.signal(signal.SIGHUP,signal.SIG_IGN); signal.signal(signal.SIGTERM,signal.SIG_IGN); time.sleep(600)"],start_new_session=True)
 (base/(key+'.pids')).write_text(json.dumps([os.getpid(),worker.pid]))
+def hook(event):
+ req=urllib.request.Request(os.environ['LAZYAI_HOOK_URL']+'/event',data=json.dumps(event).encode(),headers={'content-type':'application/json','authorization':'Bearer '+os.environ['LAZYAI_HOOK_TOKEN']},method='POST')
+ return urllib.request.urlopen(req,timeout=5)
+hook({'type':'hello','version':1})
 tty.setraw(0)
 sys.stdout.write('\\x1b[?1000h\\x1b[?1006h\\x1b[?2004hREADY '+key+'\\r\\n');sys.stdout.flush()
 count=0
+seen=b''
 with (base/(key+'.input')).open('ab',buffering=0) as log:
  while True:
   ready,_,_=select.select([0],[],[],.2)
@@ -90,6 +95,12 @@ with (base/(key+'.input')).open('ab',buffering=0) as log:
    data=os.read(0,4096)
    if not data:break
    log.write(data)
+   seen+=data
+   if b'SHOWME' in seen:
+    seen=b''
+    # Point LazyAI at 40 lines of a real file so the Show list overflows the sidebar.
+    p=pathlib.Path('showcase.txt');p.write_text(''.join('line %d\\n'%i for i in range(1,61)))
+    hook({'type':'show','title':'Showcase','locations':[{'path':str(p.resolve()),'line':i,'column':1,'text':'loc %d'%i} for i in range(1,41)]})
   count+=1
   (base/(key+'.tick')).write_text(str(count))
   sys.stdout.write('\\x1b[2;1HTICK '+str(count)+'\\x1b[K');sys.stdout.flush()
@@ -179,6 +190,31 @@ try:
         "mouse event reaches child",
     )
     check(True, "mouse click routed through app to child")
+    # Wheel over the agent pane is forwarded as an SGR wheel event (button 64).
+    wheel = b"\x1b[<64;60;8M"
+    tm("send-keys", "-t", p, "-H", *[f"{b:02x}" for b in wheel])
+    wait(
+        lambda: b"\x1b[<64;" in (base / "pkg.input").read_bytes(),
+        "wheel event reaches child",
+    )
+    check(True, "mouse wheel over the agent pane is forwarded to the child")
+    # The helper answers SHOWME with a 40-location Show set: LazyAI enters
+    # Show mode with a list longer than the sidebar. Wheeling over that list
+    # (a native LazyAI hit target) moves the selection and scrolls the list.
+    check("● plugin" in screen(p), "plugin hello reaches the status bar")
+    tm("send-keys", "-t", p, "-l", "SHOWME")
+    wait(lambda: "showcase.txt:1" in screen(p), "show set opens")
+    check("showcase.txt:40" not in screen(p), "long show list starts scrolled to the top")
+    sidebar_wheel = b"\x1b[<65;3;9M"  # 65 = wheel down
+    for _ in range(14):
+        tm("send-keys", "-t", p, "-H", *[f"{b:02x}" for b in sidebar_wheel])
+        time.sleep(0.05)
+    wait(lambda: "showcase.txt:40" in screen(p), "sidebar wheel scrolls the show list")
+    check(True, "mouse wheel over the sidebar scrolls a native LazyAI list")
+    tm("send-keys", "-t", p, "Escape")
+    time.sleep(0.2)
+    tm("send-keys", "-t", p, "i")
+    wait(lambda: "INTERACTIVE" in screen(p), "back to interactive")
     tm("resize-window", "-t", "first", "-x", "130", "-y", "40")
     wait(lambda: len(screen(p).splitlines()) == 40, "resize")
     check(True, "attached terminal resizes")
@@ -246,9 +282,18 @@ try:
     time.sleep(0.2)
     tm("send-keys", "-t", fourth, "-l", "auxiliary")
     tm("send-keys", "-t", fourth, "Enter")
+    wait(lambda: "nickname" in screen(fourth), "new workstream identity form")
+    for _ in range(len("auxiliary")):
+        tm("send-keys", "-t", fourth, "BSpace")
+    tm("send-keys", "-t", fourth, "-l", "Side quest")
+    tm("send-keys", "-t", fourth, "Tab")
+    tm("send-keys", "-t", fourth, "-l", "drive smoke")
+    tm("send-keys", "-t", fourth, "Enter")
     wait(lambda: "branch off" in screen(fourth), "new workstream base prompt")
     tm("send-keys", "-t", fourth, "m")
     wait(lambda: (base / "auxiliary.pids").exists(), "second workstream startup")
+    wait(lambda: "Side quest" in screen(fourth) and "drive smoke" in screen(fourth), "identity shown")
+    check(True, "workstream form records nickname and description shown in the strip")
     auxiliary = json.loads((base / "auxiliary.pids").read_text())
     tm("send-keys", "-t", fourth, "Escape")
     time.sleep(0.2)
@@ -266,6 +311,32 @@ try:
     wait(lambda: "CLIENT_EXIT" in screen(fourth), "close last workstream")
     wait(lambda: all(not alive(pid) for pid in newpids), "close descendant cleanup")
     check(True, "closing final workstream kills nested workers")
+    # Strict contracts: with .lazyai/config.yaml the fresh workstream opens the
+    # form instead of focusing OpenCode; ctrl+s sends one bracketed paste of
+    # deterministic YAML followed by Enter to the child.
+    (repo / ".lazyai").mkdir()
+    (repo / ".lazyai" / "config.yaml").write_text(
+        "version: 1\ninteractive:\n  strict: true\n  default_contract: task\n  contracts:\n"
+        "    task:\n      title: Task contract\n      fields:\n"
+        "        - {key: outcome, label: Outcome, type: multiline, required: true}\n"
+        "        - {key: acceptance, label: Acceptance, type: text, required: true}\n"
+    )
+    fifth = start("fifth", repo)
+    wait(lambda: "Task contract" in screen(fifth) and "CONTRACT" in screen(fifth), "strict form opens on start")
+    tm("send-keys", "-t", fifth, "-l", "ship the drive")
+    tm("send-keys", "-t", fifth, "Tab")
+    tm("send-keys", "-t", fifth, "-l", "all checks pass")
+    tm("send-keys", "-t", fifth, "C-s")
+    expected = b"\x1b[200~contract: task\noutcome: |\n  ship the drive\nacceptance: |\n  all checks pass\n\x1b[201~\r"
+    wait(lambda: expected in (base / "repo.input").read_bytes(), "contract paste")
+    wait(lambda: "INTERACTIVE" in screen(fifth) and "CONTRACT" not in screen(fifth), "contract hands over")
+    check(True, "strict contract form sends one deterministic YAML paste and returns to OpenCode")
+    tm("send-keys", "-t", fifth, "Escape")
+    time.sleep(0.2)
+    tm("send-keys", "-t", fifth, "-l", "x")
+    time.sleep(0.2)
+    tm("send-keys", "-t", fifth, "-l", "x")
+    wait(lambda: "CLIENT_EXIT" in screen(fifth), "close strict workstream")
     if options.real_opencode:
         # Real OpenCode startup uses the same binary, actual terminal and local config.
         realrepo = base / "real"
@@ -285,6 +356,10 @@ try:
             "real OpenCode prompt",
             timeout=60,
         )
+        # The bundled plugin (show_locations + setup_workstreams) loads in the
+        # real OpenCode: its hello reaches the status bar.
+        wait(lambda: "● plugin" in screen(real), "real OpenCode loads the LazyAI plugin", timeout=60)
+        check(True, "real OpenCode loads the bundled plugin with both tools")
         tm("send-keys", "-t", real, "-l", "detach-attach smoke draft")
         wait(
             lambda: "detach-attach smoke draft" in screen(real),
