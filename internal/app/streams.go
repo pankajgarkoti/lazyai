@@ -230,6 +230,7 @@ func (m *Model) switchTo(i int) {
 	}
 	m.stream.unseen = false
 	m.help = false
+	m.info = false
 	m.syncKeyboard()
 	m.refreshDiff()
 	m.refreshShow(true)
@@ -341,6 +342,8 @@ func (m Model) leaderKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.openPrompt()
 	case "e":
 		m.openIdentityEdit()
+	case "K":
+		m.openInfo()
 	case "a":
 		cmd := m.archiveStream()
 		return m, cmd

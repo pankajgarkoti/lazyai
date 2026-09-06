@@ -126,6 +126,72 @@ func TestMouseYesClickQuitsAndReleaseMotionModifiersReachChild(t *testing.T) {
 	}
 }
 
+// --- Workstream hover --------------------------------------------------------
+
+func TestWorkstreamHoverShowsDetailsAndAnyKeyDismisses(t *testing.T) {
+	h := twoStreams(t)
+	h.m.nickname, h.m.description = "Search", "rebuild the index nightly"
+	h.update(EscapeMsg{})
+	rowsBefore := strings.Count(h.m.View(), "\n")
+	h.key("K")
+	if !h.m.info {
+		t.Fatal("K should open the workstream float")
+	}
+	view := h.m.View()
+	plain := stripANSI(view)
+	for _, want := range []string{"Search", "second", "rebuild the index nightly", theme.FloatTL} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("hover missing %q:\n%s", want, plain)
+		}
+	}
+	if strings.Count(view, "\n") != rowsBefore {
+		t.Fatal("the float must overlay the pane, not shift the layout")
+	}
+	// The float sits at the left edge of the content pane, aligned with the
+	// current workstream's strip row.
+	rows := strings.Split(plain, "\n")
+	row := 1 + h.m.cur
+	if !strings.Contains(rows[row], theme.FloatTL) {
+		t.Fatalf("float should start on strip row %d: %q", row, rows[row])
+	}
+	// Any key dismisses it and is consumed; state is otherwise untouched.
+	h.key("j")
+	if h.m.info || !strings.Contains(stripANSI(h.m.View()), "Workstreams") || strings.Contains(stripANSI(h.m.View()), "nightly") {
+		t.Fatal("a key should close the float and do nothing else")
+	}
+	if h.m.fileSel != 0 {
+		t.Fatal("the dismissing key must not act")
+	}
+	// Esc and mouse clicks dismiss too; it also works from the leader.
+	h.key("K")
+	h.update(EscapeMsg{})
+	if h.m.info || !h.m.normal() {
+		t.Fatal("esc should only close the float")
+	}
+	h.key("K")
+	h.mouse(2, 2, tea.MouseButtonLeft)
+	if h.m.info {
+		t.Fatal("click should close the float")
+	}
+	h.key("i")
+	h.update(LeaderMsg{})
+	h.key("K")
+	if !h.m.info || h.forward[len(h.forward)-1] {
+		t.Fatal("leader K opens the float and takes the keyboard")
+	}
+	h.key("x")
+	if h.m.info || !h.forward[len(h.forward)-1] || h.m.pendingClose != "" {
+		t.Fatal("dismissing from interactive returns the keys to OpenCode without acting")
+	}
+	// Narrow terminals: no overflow.
+	h.update(EscapeMsg{})
+	h.update(tea.WindowSizeMsg{Width: 60, Height: 18})
+	h.key("K")
+	if w := widestRow(h.m.View()); w > 60 {
+		t.Fatalf("hover overflows: %d", w)
+	}
+}
+
 // --- G5: activity model ------------------------------------------------------
 
 func TestOverlappingAndOutOfOrderToolEventsKeepWorkingAccurate(t *testing.T) {

@@ -49,8 +49,9 @@ and skill, materialized under your user cache dir.
 
 ## Versioning and release builds
 
-Current version: **0.2.0**: workstream identities, agent-driven workstream
-setup, strict contract entry, accurate activity indicators.
+Current version: **0.2.1** (0.2: workstream identities, agent-driven
+workstream setup, strict contract entry, accurate activity indicators; 0.2.1
+replaces the strip detail row with the `K` details float).
 LazyAI uses Semantic Versioning (`MAJOR.MINOR.PATCH`). During `0.x`
 development, new features and breaking changes increment the minor version;
 compatible fixes increment the patch version. Version `1.0.0` will mark a stable
@@ -144,6 +145,7 @@ content pane; `Enter` focuses the content, `Esc` returns to the sidebar.
 | `d` / `s`          | Diff mode / Show mode        | Diff mode / Show mode    |
 | `w`                | New / wake workstream        | New / wake workstream    |
 | `e`                | Rename workstream (nickname / description) | Rename     |
+| `K`                | Workstream details float     | Workstream details float |
 | `a`                | Archive workstream (dormant) | Archive workstream       |
 | `t`                | Terminal in the worktree     | Terminal in the worktree |
 | `x x`              | Close workstream             | Close workstream         |
@@ -178,9 +180,12 @@ that directory is added to `.git/info/exclude`, so nothing tracked changes.
 An existing branch gets a worktree; an existing worktree is reused.
 
 **Navigating** — the sidebar tops every mode with a ` Workstreams` strip
-(`n  nickname  glyph`) and the status bar shows `n/N`. The current workstream
-adds a dim detail row with its branch and description. The glyph is the
-stream's activity, by precedence:
+(`n  nickname  glyph`, one row per workstream, so browsing never shifts the
+layout) and the status bar shows `n/N` and the current branch. `K` (or
+`Ctrl+Space` `K` from inside a pane) opens a details float at the edge of the
+content pane, aligned with the current row: nickname, branch, description,
+worktree path and activity; the next key, click or `Esc` closes it and does
+nothing else. The glyph is the stream's activity, by precedence:
 
 | Glyph | Meaning |
 |---|---|

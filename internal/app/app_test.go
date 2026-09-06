@@ -841,8 +841,10 @@ func TestWorktreePromptCreatesWorktreeAndWorkstream(t *testing.T) {
 	if h.m.nickname != "feat/xj" || h.m.description != "search index" {
 		t.Fatalf("identity not applied: nick=%q desc=%q", h.m.nickname, h.m.description)
 	}
-	if v := stripANSI(h.m.View()); !strings.Contains(v, "search index") {
-		t.Fatalf("strip detail row should show the description:\n%s", v)
+	// The strip never grows a detail row (no layout shift while browsing);
+	// the description lives behind K.
+	if v := stripANSI(h.m.View()); strings.Contains(v, "search index") || h.m.stripRows() != len(h.m.streams) {
+		t.Fatalf("strip must not show a detail row:\n%s", v)
 	}
 	if _, err := os.Stat(filepath.Join(want, "a.go")); err != nil {
 		t.Fatal("worktree not checked out")

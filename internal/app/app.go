@@ -193,6 +193,7 @@ type Model struct {
 
 	zoom        bool // sidebar hidden, content pane takes the full width
 	help        bool // keymap float shown instead of the content pane
+	info        bool // workstream details float (K); the next key closes it
 	confirmQuit bool // quit confirmation owns input until y / n / Esc
 
 	prompting   bool // workstream form open
@@ -373,6 +374,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.closeQuit()
 			return m, nil
 		}
+		if m.info {
+			m.closeInfo()
+			return m, nil
+		}
 		if m.setup != nil {
 			return m.setupKey("esc")
 		}
@@ -404,6 +409,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case msg.String() == "ctrl+q":
 			m.openQuit()
 			return m, nil
+		case m.info:
+			// Like a which-key popup: the next key only closes the float.
+			m.closeInfo()
+			return m, nil
 		case m.setup != nil:
 			return m.setupKey(msg.String())
 		case m.contract != nil:
@@ -418,9 +427,34 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.MouseMsg:
 		m.notice = ""
+		if m.info {
+			if msg.Action == tea.MouseActionPress {
+				m.closeInfo()
+			}
+			return m, nil
+		}
 		return m.handleMouse(msg)
 	}
 	return m, nil
+}
+
+// openInfo shows the workstream details float and takes the keyboard so the
+// dismissing key never reaches OpenCode.
+func (m *Model) openInfo() {
+	if m.stream == nil {
+		return
+	}
+	m.info = true
+	m.help = false
+	if m.cfg.SetForward != nil {
+		m.cfg.SetForward(false)
+	}
+}
+
+// closeInfo hides the float and restores keyboard ownership per the mode.
+func (m *Model) closeInfo() {
+	m.info = false
+	m.syncKeyboard()
 }
 
 func (m *Model) openQuit() {
@@ -631,7 +665,7 @@ func (m *Model) syncKeyboard() {
 		m.cfg.SetChild(m.liveTerm())
 	}
 	if m.cfg.SetForward != nil {
-		m.cfg.SetForward(!m.prompting && !m.confirmQuit && m.contract == nil && m.setup == nil && m.mode.live() && m.focus == FocusContent)
+		m.cfg.SetForward(!m.prompting && !m.confirmQuit && !m.info && m.contract == nil && m.setup == nil && m.mode.live() && m.focus == FocusContent)
 	}
 }
 

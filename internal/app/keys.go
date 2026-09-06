@@ -51,6 +51,9 @@ func (m Model) applyKey(key string) (tea.Model, tea.Cmd) {
 	case "e":
 		m.openIdentityEdit()
 		return m, nil
+	case "K":
+		m.openInfo()
+		return m, nil
 	case "t":
 		m.enter(ModeTerminal)
 		return m, nil
