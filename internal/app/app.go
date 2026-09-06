@@ -218,6 +218,8 @@ type Model struct {
 	spin    int  // spinner frame
 	ticking bool // a TickMsg is scheduled
 
+	restorable []notes.Worktree // left open by the previous session; R reopens them
+
 	width, height int
 	sidebarWidth  int
 
@@ -239,6 +241,7 @@ func New(cfg Config) (Model, error) {
 	if _, err := m.addStream(cfg.Root, ""); err != nil {
 		return Model{}, err
 	}
+	m.findRestorable()
 	return m, nil
 }
 

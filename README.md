@@ -49,10 +49,11 @@ and skill, materialized under your user cache dir.
 
 ## Versioning and release builds
 
-Current version: **0.2.2** (0.2: workstream identities, agent-driven
+Current version: **0.2.3** (0.2: workstream identities, agent-driven
 workstream setup, strict contract entry, accurate activity indicators; 0.2.1
 replaces the strip detail row with the `K` details float; 0.2.2 makes `j`/`k`
-browse workstreams in Normal and adds `Ctrl+Space` `q` to quit a session).
+browse workstreams in Normal and adds `Ctrl+Space` `q` to quit a session;
+0.2.3 adds `R` to restore the previous session's workstreams).
 LazyAI uses Semantic Versioning (`MAJOR.MINOR.PATCH`). During `0.x`
 development, new features and breaking changes increment the minor version;
 compatible fixes increment the patch version. Version `1.0.0` will mark a stable
@@ -148,6 +149,7 @@ content pane; `Enter` focuses the content, `Esc` returns to the sidebar.
 | `w`                | New / wake workstream        | New / wake workstream    |
 | `e`                | Rename workstream (nickname / description) | Rename     |
 | `K`                | Workstream details float     | Workstream details float |
+| `R`                | Restore last session's workstreams | Restore              |
 | `a`                | Archive workstream (dormant) | Archive workstream       |
 | `t`                | Terminal in the worktree     | Terminal in the worktree |
 | `x x`              | Close workstream             | Close workstream         |
@@ -229,6 +231,15 @@ and the workstream becomes current. `e` renames the current workstream
 call from a background workstream does not steal focus: it flags the stream
 with `◆`; after you switch there in Normal, `s` opens those locations.
 Closing a workstream stops its OpenCode; when the last one exits LazyAI quits.
+
+**Restoring the previous session.** Workstreams that were still open when a
+session ended (detach, `Ctrl+Space` `q`, `lazyai stop`, a crash) are offered
+on the next start: the status bar says `previous session left N workstreams
+open · R restores them` and shows `R:restore N` in Normal. `R` (or
+`Ctrl+Space` `R`) reopens them in their original order, in the background,
+with their nicknames; your current workstream keeps focus. Archived (`a`) and
+explicitly closed (`x x`) workstreams are parked and not offered; worktrees
+whose directory is gone are skipped. Nothing is reopened automatically.
 
 **Agents can set up workstreams too.** The bundled plugin adds a
 `setup_workstreams` tool; when you ask the agent to split work into
