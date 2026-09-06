@@ -23,6 +23,9 @@ import (
 func run(args []string) error {
 	if len(args) > 0 {
 		switch args[0] {
+		case "--version", "-version", "version":
+			fmt.Fprintln(os.Stdout, "lazyai", version)
+			return nil
 		case "__direct":
 			return runDirect(args[1:])
 		case "__supervise":
