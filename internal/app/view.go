@@ -202,9 +202,9 @@ func (m Model) renderHint() string {
 	case m.help:
 		hints = []kv{{"?", "close"}, {"esc", "close"}}
 	case m.mode == ModeInteractive && m.focus == FocusContent:
-		hints = []kv{{"esc", "normal"}, {"jk", "esc→opencode"}, {"ctrl+space", "workstreams"}, {"ctrl+z", "zoom"}}
+		hints = []kv{{"esc", "normal"}, {"ctrl+]", "esc→opencode"}, {"ctrl+space", "workstreams"}, {"ctrl+z", "zoom"}}
 	case m.mode == ModeTerminal && m.focus == FocusContent:
-		hints = []kv{{"esc", "normal"}, {"jk", "esc→shell"}, {"ctrl+space", "workstreams"}, {"ctrl+z", "zoom"}}
+		hints = []kv{{"esc", "normal"}, {"ctrl+]", "esc→shell"}, {"ctrl+space", "workstreams"}, {"ctrl+z", "zoom"}}
 	case m.info:
 		hints = []kv{{"any key", "close"}}
 	case m.normal():
@@ -641,7 +641,7 @@ func (m Model) changedCount() int {
 func renderHelp(w int) []string {
 	sections := []struct{ title, keys string }{
 		{"session lifecycle (available on every screen)", "ctrl+q: detach and keep all work running · reattach: run lazyai for the project · ctrl+space q: quit the session (stops every workstream, after confirming) · lazyai list: inspect sessions · lazyai stop --dir DIR: stop a project and all workstreams"},
-		{"interactive / terminal (the pane owns the keys)", "esc: normal (pane remains visible, no input) · jk: send ESC into the pane · ctrl+space: workstream leader · ctrl+z: zoom"},
+		{"interactive / terminal (the pane owns the keys)", "esc: normal (pane remains visible, no input) · ctrl+]: send a real ESC into the pane · ctrl+space: workstream leader · ctrl+z: zoom"},
 		{"normal (pane focused out)", "i: opencode · t: terminal · d: diff (when there are changes) · s: show (when the agent pointed at code) · j/k: previous / next workstream · h/l: pick a file for d · enter: back into the pane"},
 		{"workstreams (one OpenCode per git worktree)", "j / k in normal, h / l in diff / show: previous / next · w: new or wake a dormant worktree (branch, nickname, optional description) · K: details float (branch, description, worktree, activity; any key closes) · R: restore the workstreams the previous session left open · e: rename the current one · a: archive (dormant: stops OpenCode, keeps the worktree) · x x: close · from a pane: ctrl+space then h / l / 1-9 / ctrl+space (last) / w / R / K / e / a / x"},
 		{"strip glyphs", "! OpenCode waits on you · spinner: tool calls running · " + theme.Unseen + " output you have not looked at · " + theme.Dot + " idle"},

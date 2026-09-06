@@ -761,7 +761,7 @@ func TestHelpFloatAndModeIndicator(t *testing.T) {
 	}
 	h.key("?")
 	view := stripANSI(h.m.View())
-	if !strings.Contains(view, "jk") || !strings.Contains(view, "ctrl+z") || !strings.Contains(view, theme.FloatTL) {
+	if !strings.Contains(view, "ctrl+]") || !strings.Contains(view, "ctrl+z") || !strings.Contains(view, theme.FloatTL) {
 		t.Fatalf("help float missing:\n%s", view)
 	}
 	h.key("?")
@@ -1151,7 +1151,7 @@ func TestTerminalModeStartsShellPerStreamAndFollowsFocusRules(t *testing.T) {
 	if h.sinks[len(h.sinks)-1] != input.Sink(h.m.shell) || h.forward[len(h.forward)-1] != true {
 		t.Fatal("keys must forward to the shell")
 	}
-	if !strings.Contains(hintsOf(h), "esc") || !strings.Contains(hintsOf(h), "jk") {
+	if !strings.Contains(hintsOf(h), "esc") || !strings.Contains(hintsOf(h), "ctrl+]") {
 		t.Fatalf("terminal hints: %q", hintsOf(h))
 	}
 	shell := h.m.shell
@@ -1215,7 +1215,7 @@ func TestHintsTrackEveryScreen(t *testing.T) {
 	want := map[string][]string{}
 	got := map[string]string{}
 	got["interactive"] = hintsOf(h)
-	want["interactive"] = []string{"esc:normal", "jk", "ctrl+q:detach"}
+	want["interactive"] = []string{"esc:normal", "ctrl+]", "ctrl+q:detach"}
 	h.update(EscapeMsg{})
 	got["normal"] = hintsOf(h)
 	want["normal"] = []string{"w:worktree", "?:help", "ctrl+q:detach"}
