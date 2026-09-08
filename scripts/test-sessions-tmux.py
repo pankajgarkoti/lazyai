@@ -78,12 +78,14 @@ helper.write_text("""#!/usr/bin/env python3
 import os,sys,time,signal,subprocess,tty,select,json,pathlib,urllib.request
 base=pathlib.Path(os.environ['DRIVE_DATA'])
 key=pathlib.Path(os.getcwd()).name
+(base/(key+'.args')).open('a').write(json.dumps(sys.argv[1:])+'\\n')
 worker=subprocess.Popen([sys.executable,'-c',"import signal,time; signal.signal(signal.SIGHUP,signal.SIG_IGN); signal.signal(signal.SIGTERM,signal.SIG_IGN); time.sleep(600)"],start_new_session=True)
 (base/(key+'.pids')).write_text(json.dumps([os.getpid(),worker.pid]))
 def hook(event):
  req=urllib.request.Request(os.environ['LAZYAI_HOOK_URL']+'/event',data=json.dumps(event).encode(),headers={'content-type':'application/json','authorization':'Bearer '+os.environ['LAZYAI_HOOK_TOKEN']},method='POST')
  return urllib.request.urlopen(req,timeout=5)
 hook({'type':'hello','version':1})
+hook({'type':'session','sessionID':'session-'+key})
 tty.setraw(0)
 sys.stdout.write('\\x1b[?1000h\\x1b[?1006h\\x1b[?2004hREADY '+key+'\\r\\n');sys.stdout.flush()
 count=0
@@ -328,6 +330,31 @@ try:
     check(
         all(alive(pid) for pid in newpids),
         "archive stops selected workers and preserves sibling workstream",
+    )
+    # Waking an archived workstream must resume the OpenCode conversation that
+    # reported its session ID before archival.
+    tm("send-keys", "-t", fourth, "w")
+    time.sleep(0.2)
+    tm("send-keys", "-t", fourth, "-l", "auxiliary")
+    tm("send-keys", "-t", fourth, "Enter")
+    wait(
+        lambda: len((base / "auxiliary.args").read_text().splitlines()) == 2,
+        "archived workstream relaunch",
+    )
+    resumed_args = json.loads((base / "auxiliary.args").read_text().splitlines()[-1])
+    check(
+        resumed_args[-2:] == ["--session", "session-auxiliary"],
+        "waking an archived workstream resumes its OpenCode session",
+    )
+    tm("send-keys", "-t", fourth, "Escape")
+    time.sleep(0.2)
+    tm("send-keys", "-t", fourth, "a")
+    wait(
+        lambda: all(
+            not alive(pid)
+            for pid in json.loads((base / "auxiliary.pids").read_text())
+        ),
+        "reopened archive cleanup",
     )
     tm("send-keys", "-t", fourth, "Escape")
     time.sleep(0.2)

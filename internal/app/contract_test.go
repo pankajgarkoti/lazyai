@@ -148,7 +148,7 @@ func TestContractDraftIsolation(t *testing.T) {
 	} {
 		t.Run(step.name, func(t *testing.T) {
 			if step.stream == len(h.m.streams) {
-				if _, err := h.m.addStreamOpts(t.TempDir(), "second", "", "", false); err != nil {
+				if _, err := h.m.addStreamOpts(t.TempDir(), "second", "", "", "", false); err != nil {
 					t.Fatal(err)
 				}
 			}

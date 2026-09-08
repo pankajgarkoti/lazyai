@@ -18,6 +18,29 @@ import (
 	"lazyai/internal/supervisor"
 )
 
+func TestOpenCodeArgsUseWorkstreamSessionOnResume(t *testing.T) {
+	tests := []struct {
+		name    string
+		base    []string
+		session string
+		want    []string
+	}{
+		{name: "resume", base: []string{"--model", "local/model"}, session: "ses_worktree", want: []string{"--model", "local/model", "--session", "ses_worktree"}},
+		{name: "fresh", base: []string{"--model", "local/model"}, want: []string{"--model", "local/model"}},
+		{name: "saved overrides explicit session", base: []string{"--session", "ses_user"}, session: "ses_saved", want: []string{"--session", "ses_saved"}},
+		{name: "saved overrides short session", base: []string{"-s", "ses_user"}, session: "ses_saved", want: []string{"--session", "ses_saved"}},
+		{name: "saved overrides continue and fork", base: []string{"-c", "--fork=true"}, session: "ses_saved", want: []string{"--session", "ses_saved"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := openCodeArgs(tt.base, tt.session)
+			if strings.Join(got, "\x00") != strings.Join(tt.want, "\x00") {
+				t.Fatalf("args=%q want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestStopMarksUnreachableSessionStopped(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "lazyai.db")
 	t.Setenv("LAZYAI_DB", dbPath)

@@ -51,15 +51,35 @@ function pathArg(args: unknown): string | undefined {
 }
 
 const LazyAIPlugin: Plugin = async (ctx) => {
+  let selectionGeneration = 0
   report({ type: "hello", version: 1 })
 
   return {
     // Activity: LazyAI shows a spinner on the workstream while a tool runs
     // and an attention flag when OpenCode waits on the user.
     event: async ({ event }) => {
-      const type = (event as { type?: string }).type
-      if (type === "session.idle") report({ type: "idle" })
+      const current = event as {
+        type?: string
+        properties?: { sessionID?: string; info?: { id?: string; parentID?: string } }
+      }
+      const type = current.type
+      if (type === "tui.session.select") {
+        selectionGeneration++
+        report({ type: "session", sessionID: current.properties?.sessionID })
+      } else if (type === "session.idle") report({ type: "idle" })
       else if (type === "permission.updated" || type === "permission.asked") report({ type: "attention" })
+    },
+
+    // A submitted user message identifies the conversation selected in this
+    // TUI without confusing it with child-agent or background root sessions.
+    "chat.message": async (input) => {
+      const generation = selectionGeneration
+      const session = await ctx.client.session
+        .get({ path: { id: input.sessionID }, query: { directory: ctx.directory } })
+        .catch(() => undefined)
+      if (generation === selectionGeneration && session?.data && !session.data.parentID) {
+        report({ type: "session", sessionID: input.sessionID })
+      }
     },
 
     "tool.execute.before": async (input, output) => {
