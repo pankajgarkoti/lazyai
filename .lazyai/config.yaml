@@ -3,7 +3,7 @@ version: 1
 
 interactive:
   # Templates are inactive until strict is true; free-form input is the default.
-  strict: false
+  strict: true
   # Choose the initially highlighted template; strict mode also shows a picker.
   default_contract: task
   # Skill-informed input forms, not bundled skills or evidence of usage frequency.

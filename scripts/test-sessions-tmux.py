@@ -305,7 +305,8 @@ try:
     tm("send-keys", "-t", fourth, "m")
     wait(lambda: (base / "auxiliary.pids").exists(), "second workstream startup")
     wait(lambda: "Side quest" in screen(fourth), "nickname shown")
-    check("drive smoke" not in screen(fourth), "strip shows the nickname only (no detail row)")
+    wait(lambda: "drive smoke" not in screen(fourth), "strip shows the nickname only (no detail row)")
+    check(True, "strip shows the nickname only (no detail row)")
     tm("send-keys", "-t", fourth, "Escape")
     time.sleep(0.2)
     tm("send-keys", "-t", fourth, "-l", "K")
@@ -339,15 +340,23 @@ try:
     # Strict contracts: with .lazyai/config.yaml the fresh workstream opens the
     # form instead of focusing OpenCode; ctrl+s sends one bracketed paste of
     # deterministic YAML followed by Enter to the child.
-    (repo / ".lazyai").mkdir()
+    (repo / ".lazyai").mkdir(exist_ok=True)
+    shipped = pathlib.Path(__file__).resolve().parents[1] / "internal" / "config" / "default.yaml"
     (repo / ".lazyai" / "config.yaml").write_text(
-        "version: 1\ninteractive:\n  strict: true\n  default_contract: task\n  contracts:\n"
-        "    task:\n      title: Task contract\n      fields:\n"
-        "        - {key: outcome, label: Outcome, type: multiline, required: true}\n"
-        "        - {key: acceptance, label: Acceptance, type: text, required: true}\n"
+        shipped.read_text().replace("strict: false", "strict: true", 1)
     )
     fifth = start("fifth", repo)
-    wait(lambda: "Task contract" in screen(fifth) and "CONTRACT" in screen(fifth), "strict form opens on start")
+    tm("resize-window", "-t", "fifth", "-x", "130", "-y", "40")
+    wait(lambda: "Choose a contract" in screen(fifth) and "Change verification" in screen(fifth), "seven-template picker opens on start")
+    picker = screen(fifth)
+    check(all(title in picker for title in ("Task contract", "System mapping", "Environment forensics", "Incident RCA", "Change design", "Implementation", "Change verification")), "strict picker offers seven workflows")
+    tm("send-keys", "-t", fifth, "Enter")
+    wait(lambda: "Task contract" in screen(fifth) and "Outcome" in screen(fifth), "default task form opens")
+    form = screen(fifth)
+    form_lines = form.splitlines()
+    title_row = next(i for i, line in enumerate(form_lines) if "Task contract" in line)
+    border = form_lines[title_row - 1]
+    check(border.index("╮") - border.index("╭") >= 80, "task contract is rounded and wide enough")
     tm("send-keys", "-t", fifth, "-l", "ship the drive")
     tm("send-keys", "-t", fifth, "Tab")
     tm("send-keys", "-t", fifth, "-l", "all checks pass")

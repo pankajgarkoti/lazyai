@@ -276,7 +276,7 @@ func (m *Model) reloadConfig() {
 // strictActive reports whether instruction entry for the current stream goes
 // through a contract form.
 func (m Model) strictActive() bool {
-	return m.stream != nil && m.project.Interactive.Strict && m.configErr == "" && !m.freestyle
+	return m.stream != nil && m.project.Interactive.Strict && m.configErr == "" && !m.freestyle && !m.attention
 }
 
 // focusAgent is the single way into typing at OpenCode: in strict mode it
@@ -544,6 +544,10 @@ func (m *Model) applyHook(ev hooks.Event) tea.Cmd {
 		s.active = nil // clears calls whose after-event was lost
 	case "attention":
 		s.attention = true
+		if isCur && m.contract != nil {
+			m.closeContract()
+			m.enter(ModeInteractive)
+		}
 	case "file.before":
 		s.ledger.Snapshot(ev.Path)
 	case "file.read":
