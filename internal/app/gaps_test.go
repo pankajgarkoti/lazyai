@@ -652,6 +652,31 @@ func TestStrictModeGatesEveryEntryThroughTheContractForm(t *testing.T) {
 	}
 }
 
+func TestAgentAttentionBypassesAndDismissesContractForm(t *testing.T) {
+	h := strictHarness(t, strictYAML)
+	h.key("draft answer")
+	h.update(HookMsg{Event: hooks.Event{Token: h.m.token, Type: "attention"}})
+	if h.m.contract != nil || h.m.focus != FocusContent || !h.forward[len(h.forward)-1] {
+		t.Fatalf("attention must hand input to OpenCode: contract=%v focus=%v forward=%v", h.m.contract != nil, h.m.focus, h.forward)
+	}
+	if got := h.m.draft["task"]["outcome"]; got != "draft answer" {
+		t.Fatalf("dismissed contract draft=%q", got)
+	}
+
+	h.update(EscapeMsg{})
+	h.key("i")
+	if h.m.contract != nil || h.m.focus != FocusContent {
+		t.Fatal("strict form must stay out of the way while OpenCode awaits input")
+	}
+
+	h.update(HookMsg{Event: hooks.Event{Token: h.m.token, Type: "tool.before", Tool: "read"}})
+	h.update(EscapeMsg{})
+	h.key("i")
+	if h.m.contract == nil {
+		t.Fatal("strict form should resume after the agent input is resolved")
+	}
+}
+
 func TestInvalidConfigNeverEnforcesStrictMode(t *testing.T) {
 	h := strictHarness(t, "version: 1\ninteractive: [\n")
 	if h.m.contract != nil || h.m.configErr == "" || h.m.strictActive() {

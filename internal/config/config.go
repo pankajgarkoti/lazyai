@@ -230,6 +230,23 @@ func (c Config) Contract() (Contract, bool) {
 	return c.Interactive.Contracts[names[0]], true
 }
 
+// ContractChoices returns every configured contract in a stable order.
+func (c Config) ContractChoices() []Contract {
+	if !c.Loaded {
+		return nil
+	}
+	names := make([]string, 0, len(c.Interactive.Contracts))
+	for name := range c.Interactive.Contracts {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	choices := make([]Contract, 0, len(names))
+	for _, name := range names {
+		choices = append(choices, c.Interactive.Contracts[name])
+	}
+	return choices
+}
+
 // Missing lists required field keys, in template order, that have no
 // non-blank value.
 func (c Contract) Missing(values map[string]string) []string {

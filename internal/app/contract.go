@@ -70,12 +70,27 @@ type contractForm struct {
 	inputs   []*fieldInput
 	focus    int
 	invalid  map[string]bool
+	choices  []config.Contract
+	choice   int
+	choosing bool
+	// pickerFromForm distinguishes changing templates from the initial choice.
+	pickerFromForm bool
+	choiceTop      int
 	// height/width of the last layout, so field geometry follows the pane.
 	boxTop, boxW int
 }
 
-func newContractForm(c config.Contract, draft map[string]string) *contractForm {
-	f := &contractForm{contract: c, invalid: map[string]bool{}}
+func newContractForm(choices []config.Contract, choice int, draft map[string]string) *contractForm {
+	f := &contractForm{choices: choices, choice: choice, choosing: len(choices) > 1}
+	f.loadContract(choices[choice], draft)
+	return f
+}
+
+func (f *contractForm) loadContract(c config.Contract, draft map[string]string) {
+	f.contract = c
+	f.inputs = nil
+	f.focus = 0
+	f.invalid = map[string]bool{}
 	for _, fd := range c.Fields {
 		in := &fieldInput{field: fd}
 		if fd.Type == config.FieldMultiline {
@@ -101,7 +116,6 @@ func newContractForm(c config.Contract, draft map[string]string) *contractForm {
 	if len(f.inputs) > 0 {
 		f.inputs[0].focus()
 	}
-	return f
 }
 
 func (f *contractForm) values() map[string]string {
@@ -130,11 +144,15 @@ func (f *contractForm) setFocus(i int) {
 // layout sizes the inputs to the pane: fields share the rows left after the
 // title and footer so a 60x18 terminal still shows every field.
 func (f *contractForm) layout(w, h int) {
-	inner := min(w-4, 76)
+	inner := min(w-4, 88)
 	if inner < 12 {
 		inner = max(1, w-2)
 	}
 	f.boxW = inner
+	if f.choosing {
+		f.boxTop = max(0, (h-f.height())/2)
+		return
+	}
 	avail := h - 3 // title, blank, footer
 	perField := 1
 	if n := len(f.inputs); n > 0 {
@@ -160,15 +178,23 @@ func (f *contractForm) layout(w, h int) {
 // openContract shows the form for the project's contract, restoring the
 // stream's last draft so a cancelled or rejected submission is not lost.
 func (m *Model) openContract() {
-	c, ok := m.project.Contract()
-	if !ok {
+	choices := m.project.ContractChoices()
+	if len(choices) == 0 {
 		m.notice = "no contract template defined"
 		return
+	}
+	selected, _ := m.project.Contract()
+	choice := 0
+	for i, c := range choices {
+		if c.Name == selected.Name {
+			choice = i
+			break
+		}
 	}
 	if m.draft == nil {
 		m.draft = make(map[string]map[string]string)
 	}
-	m.contract = newContractForm(c, m.draft[c.Name])
+	m.contract = newContractForm(choices, choice, m.draft[choices[choice].Name])
 	w, h := m.rightInner()
 	m.contract.layout(w, h)
 	m.mode = ModeInteractive
@@ -176,6 +202,20 @@ func (m *Model) openContract() {
 	if m.cfg.SetForward != nil {
 		m.cfg.SetForward(false)
 	}
+}
+
+func (m *Model) chooseContract() {
+	f := m.contract
+	if f == nil || len(f.choices) == 0 {
+		return
+	}
+	m.draft[f.contract.Name] = f.values()
+	c := f.choices[f.choice]
+	f.loadContract(c, m.draft[c.Name])
+	f.choosing = false
+	f.pickerFromForm = false
+	w, h := m.rightInner()
+	f.layout(w, h)
 }
 
 // closeContract hides the form, keeping the draft, and returns to normal.
@@ -229,12 +269,45 @@ func (m *Model) submitContract() {
 func (m Model) contractKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	f := m.contract
 	key := msg.String()
+	if f.choosing {
+		switch key {
+		case "esc", "ctrl+c":
+			if f.pickerFromForm {
+				f.choosing = false
+				f.pickerFromForm = false
+				return m, nil
+			}
+			m.closeContract()
+			return m, nil
+		case "up", "shift+tab", "ctrl+p":
+			f.choice = (f.choice - 1 + len(f.choices)) % len(f.choices)
+			return m, nil
+		case "down", "tab", "ctrl+n":
+			f.choice = (f.choice + 1) % len(f.choices)
+			return m, nil
+		case "enter":
+			m.chooseContract()
+			return m, nil
+		}
+		if len(key) == 1 && key[0] >= '1' && int(key[0]-'1') < len(f.choices) {
+			f.choice = int(key[0] - '1')
+			m.chooseContract()
+		}
+		return m, nil
+	}
 	switch key {
 	case "esc", "ctrl+c":
 		m.closeContract()
 		return m, nil
 	case "ctrl+s":
 		m.submitContract()
+		return m, nil
+	case "ctrl+t":
+		if len(f.choices) > 1 {
+			m.draft[f.contract.Name] = f.values()
+			f.choosing = true
+			f.pickerFromForm = true
+		}
 		return m, nil
 	case "tab":
 		f.setFocus(f.focus + 1)
@@ -292,6 +365,20 @@ func (m Model) contractMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	row := msg.Y - 1
+	if f.choosing {
+		switch msg.Button {
+		case tea.MouseButtonWheelUp:
+			f.choice = (f.choice - 1 + len(f.choices)) % len(f.choices)
+		case tea.MouseButtonWheelDown:
+			f.choice = (f.choice + 1) % len(f.choices)
+		case tea.MouseButtonLeft:
+			if i := row - f.choiceTop; i >= 0 && i < len(f.choices) {
+				f.choice = i
+				m.chooseContract()
+			}
+		}
+		return m, nil
+	}
 	switch msg.Button {
 	case tea.MouseButtonWheelUp, tea.MouseButtonWheelDown:
 		if in := f.inputs[f.focus]; in.multiline() {
@@ -316,6 +403,9 @@ func (m Model) contractMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 }
 
 func (f *contractForm) height() int {
+	if f.choosing {
+		return len(f.choices) + 4
+	}
 	h := 3
 	for _, in := range f.inputs {
 		h += 1 + in.rows
@@ -326,8 +416,15 @@ func (f *contractForm) height() int {
 func (m Model) contractFooter() string {
 	return theme.StatusKey.Render("ctrl+s") + theme.PromptText.Render(" send") + "   " +
 		theme.StatusKey.Render("tab") + theme.PromptText.Render(" next field") + "   " +
+		theme.StatusKey.Render("ctrl+t") + theme.PromptText.Render(" template") + "   " +
 		theme.StatusKey.Render("esc") + theme.PromptText.Render(" keep draft & close") +
 		theme.Dim.Render("   ctrl+space f: freestyle")
+}
+
+func contractPickerFooter() string {
+	return theme.StatusKey.Render("↑/↓") + theme.PromptText.Render(" choose") + "   " +
+		theme.StatusKey.Render("enter") + theme.PromptText.Render(" open") + "   " +
+		theme.StatusKey.Render("esc") + theme.PromptText.Render(" close")
 }
 
 // renderContract lays the form over the live pane rows, vertically centred,
@@ -346,9 +443,27 @@ func (m Model) renderContract(rows []string, w, h int) []string {
 		return pad + theme.FloatBorder.Render(theme.FloatV) + " " + content + strings.Repeat(" ", gap) + " " + theme.FloatBorder.Render(theme.FloatV)
 	}
 	title := theme.DiffHeader.Render(theme.IconInfo+" "+f.contract.Title) + theme.Dim.Render("  contract: "+f.contract.Name)
+	if f.choosing {
+		title = theme.DiffHeader.Render(theme.IconInfo + " Choose a contract")
+	}
 	box := []string{
-		pad + theme.FloatBorder.Render(theme.FloatTL+strings.Repeat(theme.FloatH, inner)+theme.FloatTR),
+		pad + theme.FloatBorder.Render("╭"+strings.Repeat(theme.FloatH, inner)+"╮"),
 		line(title),
+	}
+	if f.choosing {
+		f.choiceTop = f.boxTop + len(box)
+		for i, c := range f.choices {
+			label := fmt.Sprintf("%d  %s", i+1, c.Title)
+			if i == f.choice {
+				label = theme.SelLine.Render("› " + label)
+			} else {
+				label = "  " + label
+			}
+			box = append(box, line(label))
+		}
+		box = append(box, line(contractPickerFooter()))
+		box = append(box, pad+theme.FloatBorder.Render("╰"+strings.Repeat(theme.FloatH, inner)+"╯"))
+		return overlayContract(rows, box, f.boxTop, w, h)
 	}
 	for i, in := range f.inputs {
 		in.top = f.boxTop + len(box)
@@ -376,14 +491,18 @@ func (m Model) renderContract(rows []string, w, h int) []string {
 		}
 	}
 	box = append(box, line(m.contractFooter()))
-	box = append(box, pad+theme.FloatBorder.Render(theme.FloatBL+strings.Repeat(theme.FloatH, inner)+theme.FloatBR))
+	box = append(box, pad+theme.FloatBorder.Render("╰"+strings.Repeat(theme.FloatH, inner)+"╯"))
+	return overlayContract(rows, box, f.boxTop, w, h)
+}
+
+func overlayContract(rows, box []string, top, w, h int) []string {
 	for len(rows) < h {
 		rows = append(rows, "")
 	}
 	out := make([]string, len(rows))
 	copy(out, rows)
 	for i, b := range box {
-		if y := f.boxTop + i; y >= 0 && y < len(out) {
+		if y := top + i; y >= 0 && y < len(out) {
 			out[y] = ansi.Truncate(b, w, "")
 		}
 	}

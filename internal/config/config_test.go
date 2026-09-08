@@ -88,16 +88,10 @@ func TestMissingFileCreatesExplicitDefaults(t *testing.T) {
 		"task":                  "outcome acceptance",
 		"system_mapping":        "target question",
 		"environment_forensics": "environment locator window question authority",
-		"behavior_review":       "environment window population question authority",
-		"incident_triage":       "reports expected",
 		"incident_rca":          "incident environment evidence expected authority",
-		"blast_radius":          "target change preserve",
 		"change_design":         "outcome acceptance",
 		"implementation":        "outcome acceptance authority",
 		"verification":          "revision environment acceptance authority",
-		"release":               "revision environment evidence authority recovery",
-		"incident_response":     "environment impact evidence authority recovery",
-		"outcome_review":        "target outcome evidence",
 	}
 	if len(raw.Interactive.Contracts) != len(minimums) {
 		t.Errorf("want %d workflow templates, got %d", len(minimums), len(raw.Interactive.Contracts))
@@ -226,7 +220,7 @@ func TestConcurrentLoadCreatesOnlyCompleteDefaults(t *testing.T) {
 		wg.Go(func() {
 			<-start
 			cfg, warnings, err := Load(root)
-			if err != nil || !cfg.Loaded || cfg.Interactive.Strict || len(warnings) != 0 || len(cfg.Interactive.Contracts) != 13 {
+			if err != nil || !cfg.Loaded || cfg.Interactive.Strict || len(warnings) != 0 || len(cfg.Interactive.Contracts) != 7 {
 				t.Errorf("concurrent load: cfg=%+v warnings=%v err=%v", cfg, warnings, err)
 			}
 		})

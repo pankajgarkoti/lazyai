@@ -52,14 +52,15 @@ with strict contracts disabled. See [Configuration](#configuration) to customize
 
 ## Versioning and release builds
 
-Current version: **0.4.0** (0.2: workstream identities, agent-driven
+Current version: **0.5.0** (0.2: workstream identities, agent-driven
 workstream setup, strict contract entry, accurate activity indicators; 0.2.1
 replaces the strip detail row with the `K` details float; 0.2.2 makes `j`/`k`
 browse workstreams in Normal and adds `Ctrl+Space` `q` to quit a session;
 0.2.3 adds `R` to restore the previous session's workstreams; 0.3.0 replaces
-the `jk` chord with `Ctrl+]` for a real Escape, a keymap change; 0.4.0
-creates editable project defaults with 13 opt-in workflow contracts and keeps
-drafts separate for each template).
+the `jk` chord with `Ctrl+]` for a real Escape, a keymap change; 0.4.0 creates
+editable project defaults with workflow contracts and separate drafts; 0.5.0
+adds the seven-workflow picker, rounded responsive forms, and direct handoff for
+agent questions and permissions).
 LazyAI uses Semantic Versioning (`MAJOR.MINOR.PATCH`). During `0.x`
 development, new features and breaking changes increment the minor version;
 compatible fixes increment the patch version. Version `1.0.0` will mark a stable
@@ -262,7 +263,7 @@ repository of the workstream whose agent made them.
 
 LazyAI works out of the box: by default you type directly into OpenCode.
 When the project config is missing, LazyAI creates `.lazyai/config.yaml` with
-every supported option written out, explanatory comments, and 13 ready-to-edit
+every supported option written out, explanatory comments, and seven ready-to-edit
 contract templates. **Strict mode is off**, so none of the templates changes
 how you type until you enable it.
 
@@ -314,21 +315,15 @@ single-line fields; outcomes, evidence, and authority use multiline fields.
 | `task` | General work: desired outcome, acceptance criteria, optional scope and boundaries |
 | `system_mapping` | Understand a subsystem: target and questions about its flow or ownership |
 | `environment_forensics` | Retrieve evidence: environment, locator, time window, question, and access limits |
-| `behavior_review` | Find recurring friction: bounded session corpus, population, review question, and access limits |
-| `incident_triage` | Sort reports into actionable incidents: original reports and expected behavior |
 | `incident_rca` | Diagnose a validated incident: failure evidence, expected behavior, and experiment boundaries |
-| `blast_radius` | Assess side effects: target, proposed change, and behavior that must remain stable |
 | `change_design` | Design before coding: intended behavior, acceptance criteria, optional RCA and constraints |
 | `implementation` | Deliver an approved change: outcome, acceptance, mutation authority, optional reproduction and checks |
 | `verification` | Independently challenge a change: revision, environment, criteria, and report-only boundaries |
-| `release` | Ship verified work: revision, environment, verification evidence, explicit authority, and recovery plan |
-| `incident_response` | Restore a degraded system: environment, impact, evidence, containment authority, and recovery criteria |
-| `outcome_review` | Evaluate results: work boundary, promised outcome, observed evidence, optional rework costs |
 
-To use one, set `interactive.strict: true` and change
-`interactive.default_contract` to its name, such as `incident_rca`, then press
-`Ctrl+Space` followed by `c` to reload. One template is selected for the project
-at a time; there is no per-template enabled flag or in-form template picker.
+To use them, set `interactive.strict: true`, then press `Ctrl+Space` followed by
+`c` to reload. Strict entry opens a picker containing every configured template;
+`interactive.default_contract` chooses the initially highlighted one. There is
+no per-template enabled flag: remove templates you do not want to offer.
 
 The templates are portable prompts, not installed skills or automatic permission
 grants. Only the contract name and your non-empty answers reach the agent, not
@@ -364,12 +359,15 @@ interactive:
           type: text
 ```
 
-With `strict: true`, `i`, `Enter` and a click on the agent pane open the
-contract form centred over OpenCode instead of handing it the keyboard. `Tab`
-/ `Shift+Tab` move between fields, `Enter` on a single-line field moves on
-(and submits from the last one), `Ctrl+S` submits, `Esc` closes and keeps your
-draft, right-click closes. Missing required fields are flagged in place and
-nothing is sent. Submitting sends one deterministic YAML document as a single
+With `strict: true`, `i`, `Enter` and a click on the agent pane open a template
+picker centred over OpenCode. Use arrows, `Tab`, or number keys to choose, then
+`Enter` to open the form; `Ctrl+T` returns to the picker. In the form, `Tab` /
+`Shift+Tab` move between fields, `Enter` on a single-line field moves on (and
+submits from the last one), `Ctrl+S` submits, and `Esc` closes and keeps your
+draft. Missing required fields are flagged in place and nothing is sent.
+When OpenCode is waiting for a question, option, or permission response, LazyAI
+closes the form, preserves its draft, and hands input directly to OpenCode.
+Submitting sends one deterministic YAML document as a single
 paste (`contract: task`, then every non-empty field in template order as a
 literal block) followed by Enter, and then focuses OpenCode as usual. The
 bundled skill tells the agent to treat every field as binding.
@@ -385,7 +383,7 @@ You can rename the template and add or remove fields to fit your workflow:
 |---|---|
 | `version` | Required; currently `1` |
 | `interactive.strict` | Defaults to `false`; `true` enables the form and requires at least one contract |
-| `interactive.default_contract` | Name of the contract to use; must exist in `contracts` if set. If omitted, LazyAI selects the first name alphabetically |
+| `interactive.default_contract` | Initially highlighted contract; must exist in `contracts` if set. If omitted, LazyAI highlights the first name alphabetically |
 | `interactive.contracts` | Named templates, each with an optional `title` and a non-empty `fields` list |
 | Field `key` / `label` | Required, non-blank output key and display label; keys must be unique within a template and cannot contain spaces, tabs, newlines, `:` or `#` |
 | Field `type` | `text` for one line (the default), or `multiline` |
