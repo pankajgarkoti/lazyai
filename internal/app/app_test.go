@@ -29,17 +29,19 @@ type harness struct {
 	forward  []bool
 	children []*terminal.Terminal
 	tokens   int
+	sessions []string
 	sinks    []input.Sink
 }
 
 // launch starts /bin/cat as a stand-in child: it echoes whatever is pasted,
 // so references become visible on its screen.
-func (h *harness) launch(dir string, w, hgt int) (*terminal.Terminal, string, error) {
+func (h *harness) launch(dir, sessionID string, w, hgt int) (*terminal.Terminal, string, error) {
 	term, err := terminal.Start(terminal.Options{Command: "/bin/cat", Dir: dir, Env: os.Environ(), Width: w, Height: hgt})
 	if err != nil {
 		return nil, "", err
 	}
 	h.children = append(h.children, term)
+	h.sessions = append(h.sessions, sessionID)
 	h.tokens++
 	return term, fmt.Sprintf("tok%d", h.tokens), nil
 }
@@ -1183,6 +1185,7 @@ type fakeNotes struct{ recs []string }
 
 func (f *fakeNotes) UpsertWorktree(string, string, string, bool) error        { return nil }
 func (f *fakeNotes) SetWorktreeIdentity(string, string, string, string) error { return nil }
+func (f *fakeNotes) SetWorktreeSession(string, string, string) error          { return nil }
 func (f *fakeNotes) SetDormant(string, string, bool) error                    { return nil }
 func (f *fakeNotes) Worktrees(string) ([]notes.Worktree, error)               { return nil, nil }
 func (f *fakeNotes) SetState(string, string, string) error                    { return nil }
@@ -1300,6 +1303,12 @@ func (m *memStore) SetWorktreeIdentity(repo, branch, nickname, description strin
 	w.Nickname, w.Description = nickname, description
 	return nil
 }
+func (m *memStore) SetWorktreeSession(repo, branch, sessionID string) error {
+	if w, ok := m.wts[branch]; ok {
+		w.SessionID = sessionID
+	}
+	return nil
+}
 func (m *memStore) SetDormant(repo, branch string, dormant bool) error {
 	if w, ok := m.wts[branch]; ok {
 		w.Dormant = dormant
@@ -1346,6 +1355,15 @@ func TestArchiveMakesWorktreeDormantAndPromptWakesIt(t *testing.T) {
 		t.Fatalf("last_branch=%q", st.state["last_branch"])
 	}
 	wt := h.m.root
+	h.hook(hooks.Event{Type: "session", SessionID: "session-z"})
+	if st.wts["feat/z"].SessionID != "session-z" {
+		t.Fatalf("session not persisted: %+v", st.wts["feat/z"])
+	}
+	h.hook(hooks.Event{Type: "tool.before", SessionID: "session-child", CallID: "child-tool"})
+	h.hook(hooks.Event{Type: "tool.after", SessionID: "session-child", CallID: "child-tool"})
+	if st.wts["feat/z"].SessionID != "session-z" {
+		t.Fatalf("tool session replaced selected session: %+v", st.wts["feat/z"])
+	}
 	// a archives: stream gone, OpenCode stopped, worktree kept and marked dormant.
 	h.update(EscapeMsg{})
 	h.key("a")
@@ -1378,6 +1396,9 @@ func TestArchiveMakesWorktreeDormantAndPromptWakesIt(t *testing.T) {
 	}
 	if h.m.nickname != "Zed" || st.wts["feat/z"].Nickname != "Zed" {
 		t.Fatalf("identity lost across archive/wake: mem=%q db=%q", h.m.nickname, st.wts["feat/z"].Nickname)
+	}
+	if got := h.sessions[len(h.sessions)-1]; got != "session-z" {
+		t.Fatalf("reopened session=%q want session-z", got)
 	}
 	if !strings.Contains(stripANSI(h.m.View()), "2 Zed") {
 		t.Fatalf("strip should show the nickname:\n%s", stripANSI(h.m.View()))

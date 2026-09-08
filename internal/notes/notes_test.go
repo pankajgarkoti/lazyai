@@ -84,10 +84,9 @@ func TestRuntimeSessionRegistryPersistsStatus(t *testing.T) {
 	}
 }
 
-// TestMigrationAddsIdentityColumnsToVersion0Database opens a database created
-// by the pre-identity schema and checks the versioned migration adds nickname
-// and description without touching existing rows or re-running.
-func TestMigrationAddsIdentityColumnsToVersion0Database(t *testing.T) {
+// TestMigrationsUpgradeVersion0Database opens a baseline database and checks
+// additive migrations preserve existing rows and remain idempotent.
+func TestMigrationsUpgradeVersion0Database(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "n.db")
 	raw, err := sql.Open("sqlite", path)
 	if err != nil {
@@ -117,10 +116,13 @@ func TestMigrationAddsIdentityColumnsToVersion0Database(t *testing.T) {
 	if err != nil || len(all) != 1 {
 		t.Fatalf("worktrees=%v err=%v", all, err)
 	}
-	if all[0].Branch != "feat/old" || !all[0].Dormant || all[0].Nickname != "" || all[0].Description != "" {
+	if all[0].Branch != "feat/old" || !all[0].Dormant || all[0].Nickname != "" || all[0].Description != "" || all[0].SessionID != "" {
 		t.Fatalf("old row changed: %+v", all[0])
 	}
 	if err := db.SetWorktreeIdentity("/repo", "feat/old", "Login fix", "remember the cookie bug"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetWorktreeSession("/repo", "feat/old", "session-old"); err != nil {
 		t.Fatal(err)
 	}
 	// A wake (upsert) must not clobber identity.
@@ -128,8 +130,8 @@ func TestMigrationAddsIdentityColumnsToVersion0Database(t *testing.T) {
 		t.Fatal(err)
 	}
 	all, _ = db.Worktrees("/repo")
-	if all[0].Nickname != "Login fix" || all[0].Description != "remember the cookie bug" || all[0].Dormant {
-		t.Fatalf("identity lost on upsert: %+v", all[0])
+	if all[0].Nickname != "Login fix" || all[0].Description != "remember the cookie bug" || all[0].SessionID != "session-old" || all[0].Dormant {
+		t.Fatalf("worktree state lost on upsert: %+v", all[0])
 	}
 	// Identity for a branch that was never opened is stored too (agent setup
 	// records identity before launch).
