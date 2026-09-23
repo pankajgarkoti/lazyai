@@ -201,6 +201,8 @@ func runDirect(args []string) error {
 		launchArgs := childArgs
 		if backend.Name == "opencode" {
 			launchArgs = openCodeArgs(childArgs, sessionID)
+		} else {
+			launchArgs = codexArgs(childArgs, sessionID)
 		}
 		args, env := backend.Launch(self, dir, hookSrv.URL, token, launchArgs)
 		child, err := terminal.Start(terminal.Options{

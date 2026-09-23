@@ -111,6 +111,7 @@ type NotesStore interface {
 	UpsertWorktree(repo, branch, path string, linked bool) error
 	SetWorktreeIdentity(repo, branch, nickname, description string) error
 	SetWorktreeSession(repo, branch, sessionID string) error
+	SetWorktreeCodexSession(repo, branch, sessionID string) error
 	SetDormant(repo, branch string, dormant bool) error
 	Worktrees(repo string) ([]notes.Worktree, error)
 	SetState(repo, key, value string) error
@@ -159,7 +160,6 @@ type stream struct {
 	toolsOK        bool
 	hooksOK        bool
 	integrationErr string
-	agentSession   string
 	attentionCalls map[string]bool
 	active         map[string]bool              // in-flight tool calls by call id
 	attention      bool                         // OpenCode is waiting on the user (permission/question)
@@ -540,7 +540,11 @@ func (m *Model) applyHook(ev hooks.Event) tea.Cmd {
 	if ev.Type == "session" && ev.SessionID != "" && ev.SessionID != s.sessionID {
 		s.sessionID = ev.SessionID
 		if m.cfg.Notes != nil && s.repo.Main != "" {
-			_ = m.cfg.Notes.SetWorktreeSession(s.repo.Main, s.name, ev.SessionID)
+			if m.backend() == "codex" {
+				_ = m.cfg.Notes.SetWorktreeCodexSession(s.repo.Main, s.name, ev.SessionID)
+			} else {
+				_ = m.cfg.Notes.SetWorktreeSession(s.repo.Main, s.name, ev.SessionID)
+			}
 		}
 	}
 	// Operate on that stream as if it were current, then restore.
@@ -552,9 +556,6 @@ func (m *Model) applyHook(ev hooks.Event) tea.Cmd {
 
 	switch ev.Type {
 	case "hello":
-		if ev.SessionID != "" {
-			s.agentSession = ev.SessionID
-		}
 		switch ev.Component {
 		case "tools":
 			s.toolsOK = true
@@ -647,7 +648,7 @@ func (m *Model) applyHook(ev hooks.Event) tea.Cmd {
 		if m.cfg.Notes != nil {
 			sessionID := ev.SessionID
 			if sessionID == "" {
-				sessionID = s.agentSession
+				sessionID = s.sessionID
 			}
 			if m.backend() == "codex" {
 				sessionID = "codex:" + sessionID

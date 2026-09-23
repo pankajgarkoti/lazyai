@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -39,6 +40,11 @@ func Prepare(cfg config.Agent, opencodeOverride string) (Backend, error) {
 	path, err := exec.LookPath(bin)
 	if err != nil {
 		return Backend{}, fmt.Errorf("%s executable %q unavailable: %w", cfg.Backend, bin, err)
+	}
+	// Children run in different worktrees; retain the executable we validated.
+	path, err = filepath.Abs(path)
+	if err != nil {
+		return Backend{}, err
 	}
 	b := Backend{Name: cfg.Backend, Executable: path}
 	if b.Name == "codex" {

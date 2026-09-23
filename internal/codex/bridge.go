@@ -91,6 +91,11 @@ func (b Bridge) Hook(in io.Reader, out io.Writer) error {
 	}
 	switch h.Event {
 	case "SessionStart", "SubagentStart":
+		if h.Event == "SessionStart" {
+			if _, err := b.Send(hooks.Event{Type: "session", SessionID: h.SessionID}); err != nil {
+				return err
+			}
+		}
 		return json.NewEncoder(out).Encode(map[string]any{"hookSpecificOutput": map[string]any{"hookEventName": h.Event, "additionalContext": Instructions}})
 	case "PreToolUse":
 		if err := send("tool.before"); err != nil {

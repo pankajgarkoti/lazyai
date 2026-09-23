@@ -134,35 +134,43 @@ func loadBytes(path string) ([]byte, error) {
 }
 
 func createDefault(path string) error {
+	_, err := createFile(path, defaultYAML)
+	return err
+}
+
+func createFile(path string, data []byte) (bool, error) {
 	// A dangling symlink is still user-owned configuration, not an absent file.
 	if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
-		return err
+		return false, err
 	}
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
+		return false, err
 	}
 	tmp, err := os.CreateTemp(dir, ".config-*")
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer os.Remove(tmp.Name())
 	defer tmp.Close()
-	if _, err := tmp.Write(defaultYAML); err != nil {
-		return err
+	if _, err := tmp.Write(data); err != nil {
+		return false, err
 	}
 	if err := tmp.Sync(); err != nil {
-		return err
+		return false, err
 	}
 	if err := tmp.Close(); err != nil {
-		return err
+		return false, err
 	}
 	// Publish only complete bytes, without replacing a concurrent creator's file.
 	// Rename can overwrite; exclusive-create followed by Write exposes partial YAML.
-	if err := os.Link(tmp.Name(), path); err != nil && !errors.Is(err, os.ErrExist) {
-		return err
+	if err := os.Link(tmp.Name(), path); err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return false, nil
+		}
+		return false, err
 	}
-	return nil
+	return true, nil
 }
 
 // Parse validates configuration bytes. On error the returned Config has

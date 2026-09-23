@@ -21,6 +21,7 @@ import (
 	"lazyai/internal/config"
 	"lazyai/internal/hooks"
 	"lazyai/internal/notes"
+	"lazyai/internal/onboarding"
 	"lazyai/internal/supervisor"
 )
 
@@ -76,6 +77,29 @@ func attachSession(args []string) error {
 	socket := supervisor.SocketPath(project)
 	conn, err := net.Dial("unix", socket)
 	if err != nil {
+		defaultAgent := "opencode"
+		if _, openErr := exec.LookPath("opencode"); openErr != nil && opts.bin == "" {
+			if _, codexErr := exec.LookPath("codex"); codexErr == nil {
+				defaultAgent = "codex"
+			}
+		}
+		if setupErr := onboarding.Run(project, os.Stdin, os.Stdout, onboarding.Options{
+			DefaultAgent: defaultAgent, Executable: opts.bin,
+			Validate: func(a config.Agent) error {
+				if opts.bin != "" && a.Backend != "opencode" {
+					return fmt.Errorf("--opencode selects OpenCode; restart without that flag to choose Codex")
+				}
+				// Validate the executable being saved, not a different CLI override.
+				_, err := agent.Prepare(a, "")
+				return err
+			},
+		}); setupErr != nil {
+			if errors.Is(setupErr, onboarding.ErrCanceled) {
+				fmt.Fprintln(os.Stdout, "\nProject setup canceled; nothing started.")
+				return nil
+			}
+			return setupErr
+		}
 		// Fail in the attached client, before creating worktrees or a supervisor.
 		// Existing sessions are reattached without reinterpreting launch config.
 		cfg, configErr := config.LoadAgent(project)

@@ -79,3 +79,45 @@ func TestCodexAttentionSurvivesUnrelatedConcurrentCalls(t *testing.T) {
 		t.Fatal("dead MCP server still reported healthy")
 	}
 }
+
+func TestWorkstreamReopensOnlySelectedBackendConversation(t *testing.T) {
+	h := newHarness(t)
+	h.writeFile(t, "a.go", 3)
+	gitRepo(t, h.root)
+	store := newMemStore()
+	h.m.cfg.Notes = store
+	h.m.refreshRepo()
+	h.m.name = "main"
+	h.m.registerWorktree()
+	if _, err := h.m.OpenWorkstream(hooks.WorkstreamSpec{Branch: "feature", Nickname: "Feature"}, true); err != nil {
+		t.Fatal(err)
+	}
+	h.hook(hooks.Event{Type: "session", SessionID: "opencode-session"})
+	h.update(EscapeMsg{})
+	h.key("a")
+	h.m.cfg.Backend = "codex"
+	if _, err := h.m.OpenWorkstream(hooks.WorkstreamSpec{Branch: "feature"}, true); err != nil {
+		t.Fatal(err)
+	}
+	if got := h.sessions[len(h.sessions)-1]; got != "" {
+		t.Fatalf("Codex received OpenCode session: %s", got)
+	}
+	h.hook(hooks.Event{Type: "session", SessionID: "codex-session", Backend: "codex"})
+	h.update(EscapeMsg{})
+	h.key("a")
+	if _, err := h.m.OpenWorkstream(hooks.WorkstreamSpec{Branch: "feature"}, true); err != nil {
+		t.Fatal(err)
+	}
+	if got := h.sessions[len(h.sessions)-1]; got != "codex-session" {
+		t.Fatalf("Codex session lost: %s", got)
+	}
+	h.update(EscapeMsg{})
+	h.key("a")
+	h.m.cfg.Backend = "opencode"
+	if _, err := h.m.OpenWorkstream(hooks.WorkstreamSpec{Branch: "feature"}, true); err != nil {
+		t.Fatal(err)
+	}
+	if got := h.sessions[len(h.sessions)-1]; got != "opencode-session" {
+		t.Fatalf("OpenCode session lost: %s", got)
+	}
+}

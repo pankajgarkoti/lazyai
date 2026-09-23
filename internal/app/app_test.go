@@ -1186,6 +1186,7 @@ type fakeNotes struct{ recs []string }
 func (f *fakeNotes) UpsertWorktree(string, string, string, bool) error        { return nil }
 func (f *fakeNotes) SetWorktreeIdentity(string, string, string, string) error { return nil }
 func (f *fakeNotes) SetWorktreeSession(string, string, string) error          { return nil }
+func (f *fakeNotes) SetWorktreeCodexSession(string, string, string) error     { return nil }
 func (f *fakeNotes) SetDormant(string, string, bool) error                    { return nil }
 func (f *fakeNotes) Worktrees(string) ([]notes.Worktree, error)               { return nil, nil }
 func (f *fakeNotes) SetState(string, string, string) error                    { return nil }
@@ -1306,6 +1307,12 @@ func (m *memStore) SetWorktreeIdentity(repo, branch, nickname, description strin
 func (m *memStore) SetWorktreeSession(repo, branch, sessionID string) error {
 	if w, ok := m.wts[branch]; ok {
 		w.SessionID = sessionID
+	}
+	return nil
+}
+func (m *memStore) SetWorktreeCodexSession(repo, branch, sessionID string) error {
+	if w, ok := m.wts[branch]; ok {
+		w.CodexSessionID = sessionID
 	}
 	return nil
 }

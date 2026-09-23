@@ -47,8 +47,32 @@ configuration, providers, sessions, skills and plugins all apply; LazyAI only
 adds one extra config directory (`OPENCODE_CONFIG_DIR`) containing its plugin
 and skill, materialized under your user cache dir.
 
-No setup is needed: LazyAI creates a commented project config on first start,
-with strict contracts disabled. See [Configuration](#configuration) to customize it.
+On first launch in a project without `.lazyai/config.yaml`, LazyAI asks a few
+setup questions before starting the agent. Existing configurations are reused.
+
+## First-run project setup
+
+The setup asks for:
+
+1. **Coding agent:** OpenCode or Codex. OpenCode is the default when installed;
+   Codex is suggested when it is the only one available.
+2. **Executable:** an optional custom path; blank uses the agent on `PATH`.
+3. **Strict mode:** whether entering the agent opens a structured task form
+   instead of accepting free-form instructions. Default: off.
+4. **Default workflow:** which of the seven bundled contract templates is
+   selected first. Default: `task`; this also applies if strict mode is enabled later.
+
+Press Enter to accept a default, enter a choice's name or number, or type `q`
+to cancel. A final summary asks whether to save and start. Invalid selections
+are re-prompted, and LazyAI checks the executable before saving. Cancellation or
+end-of-input leaves the project unconfigured and starts no supervisor, agent,
+branch or worktree.
+
+The commented config, including all seven editable templates, is saved in the
+main checkout so linked worktrees share it. Existing files are never overwritten,
+including malformed configurations. Reattaching to a running session skips setup.
+Model/provider settings remain in the selected agent's native configuration.
+See [Configuration](#configuration) for changes after setup.
 
 ## Choosing OpenCode or Codex
 
@@ -75,7 +99,9 @@ LazyAI again. Use `R` to reopen the previous workstreams. Reloading config with
 required** for agent changes. Detach/reattach keeps the running agent and its
 screen, even if the file has changed. A full stop retains worktree identities and
 saved Show records, but not live screens, in-memory diff baselines or drafts.
-Native chat histories remain with their respective agents.
+Native chat histories remain with their respective agents. Reopened workstreams
+resume the saved conversation for the selected backend; OpenCode and Codex IDs
+are stored separately so switching back preserves the previous conversation.
 
 **Codex setup:** LazyAI adds invocation-scoped lifecycle hooks and a `lazyai`
 stdio MCP server. Your Codex auth, model, sandbox, skills, and other configuration
@@ -103,7 +129,7 @@ See [integration details and verification](docs/agent-backends.md).
 
 ## Versioning and release builds
 
-Current version: **0.6.0** (0.2: workstream identities, agent-driven
+Current version: **0.7.0** (0.2: workstream identities, agent-driven
 workstream setup, strict contract entry, accurate activity indicators; 0.2.1
 replaces the strip detail row with the `K` details float; 0.2.2 makes `j`/`k`
 browse workstreams in Normal and adds `Ctrl+Space` `q` to quit a session;
@@ -112,7 +138,8 @@ the `jk` chord with `Ctrl+]` for a real Escape, a keymap change; 0.4.0 creates
 editable project defaults with workflow contracts and separate drafts; 0.5.0
 adds the seven-workflow picker, rounded responsive forms, and direct handoff for
 agent questions and permissions; 0.6.0 resumes a workstream's OpenCode
-conversation when the workstream is reopened).
+conversation when the workstream is reopened; 0.7.0 adds per-project Codex/OpenCode
+selection, first-run setup, and backend-specific conversation resume).
 LazyAI uses Semantic Versioning (`MAJOR.MINOR.PATCH`). During `0.x`
 development, new features and breaking changes increment the minor version;
 compatible fixes increment the patch version. Version `1.0.0` will mark a stable
@@ -313,11 +340,10 @@ repository of the workstream whose agent made them.
 
 ## Configuration
 
-LazyAI works out of the box: by default you type directly into OpenCode.
-When the project config is missing, LazyAI creates `.lazyai/config.yaml` with
+LazyAI works out of the box: by default you type directly into the selected agent.
+When a new project's config is missing, first-run setup creates `.lazyai/config.yaml` with
 every supported option written out, explanatory comments, and seven ready-to-edit
-contract templates. **Strict mode is off**, so none of the templates changes
-how you type until you enable it.
+contract templates. **Strict mode defaults to off**; setup lets you enable it.
 
 ### Where configuration lives
 
@@ -335,9 +361,10 @@ how you type until you enable it.
 
 ### Start small
 
-Start LazyAI, then edit `.lazyai/config.yaml` in the main checkout. The generated
-file starts with `version: 1`, `strict: false`, and `default_contract: task`,
-followed by the templates. Existing files are **never overwritten or upgraded**,
+Start LazyAI and answer the setup questions, then edit `.lazyai/config.yaml` in the
+main checkout as needed. The generated file starts with `version: 1`, your chosen
+agent, strict-mode setting and default workflow, followed by the templates.
+Existing files are **never overwritten or upgraded**,
 even if they are empty or invalid. To add newly shipped templates to an older
 config, copy the ones you want from the [shipped config](internal/config/default.yaml).
 
@@ -549,6 +576,7 @@ internal/integration  embedded OpenCode plugin (show_locations, setup_workstream
 internal/agent        project backend selection, executable checks and invocation-scoped integration settings
 internal/codex        Codex lifecycle hook adapter and stdio MCP tools
 internal/config       creates/loads .lazyai/config.yaml: default templates, validation, deterministic rendering
+internal/onboarding   first-run terminal questions and non-overwriting configuration initialization
 internal/activity     file ledger (read/modified/shown, reasons, baselines)
 internal/diff         unified diff + hunk parsing
 internal/show         quickfix-style location set validation and source loading

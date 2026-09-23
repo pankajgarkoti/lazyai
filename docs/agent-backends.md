@@ -7,6 +7,14 @@ main checkout's `.lazyai/config.yaml`. Every child uses the same frozen backend;
 configuration reload cannot create a mixed project. Backend/executable changes
 require an explicit session stop and relaunch. OpenCode remains the default.
 
+New projects without `.lazyai/config.yaml` first answer a terminal setup flow:
+agent, optional executable, strict mode and default workflow, then a save/start
+summary. Setup runs in the attached client before raw mode, supervisors or
+worktree creation. Cancellation/EOF is side-effect-free. The canonical main
+checkout owns the resulting commented configuration, published atomically without
+overwriting an existing or concurrently-created file. Existing projects and
+reattachments skip the questions entirely.
+
 The implementation preserves native terminal UIs and routes their telemetry into
 the existing LazyAI model. It does not translate conversation histories, models,
 permissions or third-party plugins between CLIs. Each CLI retains its own native
@@ -54,8 +62,12 @@ invalidate Codex's native hook-trust hashes.
   different paths. Such custom rewriting is not a verified baseline boundary.
 - Hosted tools that do not emit Codex local-tool hooks are not counted by the
   spinner. Hook failures are bounded and surfaced; they do not authorize actions.
-- Show records store Codex IDs as `codex:<id>`, preserving the existing database
-  schema and legacy OpenCode IDs. Live diff baselines/drafts have the same
+- Show records store Codex IDs as `codex:<id>`, preserving legacy OpenCode IDs.
+  Schema v3 adds a separate `codex_session_id` to worktrees without changing their
+  existing OpenCode `session_id`. Reopening selects the configured backend's
+  saved conversation; Codex uses `codex resume <id>`. Explicit native `resume`
+  or `fork` passthrough commands override automatic Codex selection.
+  Live diff baselines/drafts have the same
   detach-versus-stop lifetime as before.
 - Use native local Codex; remote app-server and Codex-managed worktree launch
   options can change execution/environment roots and are not supported by this
@@ -71,7 +83,9 @@ python3 scripts/test-codex-bridge.py
 python3 scripts/test-sessions-tmux.py --real-opencode --real-codex
 ```
 
-The Go tests cover configuration selection, reload boundaries, acknowledgment
+The Go tests cover setup answers, cancellation, invalid choices, executable
+validation, existing-file preservation, configuration selection, separate backend
+conversation persistence, reload boundaries, acknowledgment
 ordering, dirty-file baselines, failed/reverted writes, multi-file/move parsing,
 MCP handshake/tool errors, scoped reads, concurrent attention, and existing
 workstream/strict-contract/supervisor behavior.
@@ -85,7 +99,7 @@ and turn completion. Its HTTP receiver stands in for LazyAI's model; the Go host
 tests separately cover actual validation, snapshot storage and workstream setup.
 
 The tmux drive uses real native terminal processes without submitting model
-requests. It checks terminal routing, lifecycle, workstreams, strict forms,
+requests. It checks first-run setup, terminal routing, lifecycle, workstreams, strict forms,
 OpenCode plugin startup, and Codex draft preservation when reattaching after a
 backend config change. It skips native hook review for this terminal-only check;
 the isolated compatibility drive proves trusted hook execution separately.

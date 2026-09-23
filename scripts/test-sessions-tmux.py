@@ -135,6 +135,17 @@ def screen(p):
     return tm("capture-pane", "-p", "-t", p)
 
 
+def finish_setup(p):
+    # The real first-run wizard runs before the supervisor/raw terminal starts.
+    for label, answer in (("Coding agent", "opencode"), ("Executable path", ""),
+                          ("Enable strict mode", "no"), ("Default workflow", "task"),
+                          ("Save and start", "yes")):
+        wait(lambda: label in screen(p), "setup: " + label)
+        if answer:
+            tm("send-keys", "-t", p, "-l", answer)
+        tm("send-keys", "-t", p, "Enter")
+
+
 def modes(p):
     return tm(
         "display-message",
@@ -168,7 +179,10 @@ def alive(pid):
 p = None
 try:
     p = start("first", repo / "src" / "pkg")
+    finish_setup(p)
     wait(lambda: "READY" in screen(p), "first screen")
+    check((repo / ".lazyai" / "config.yaml").exists() and not (repo / "src" / "pkg" / ".lazyai").exists(),
+          "first-run setup saves one configuration in the canonical main checkout")
     check(
         modes(p) == "1 1 1 1",
         "client enables mouse, SGR, bracketed paste and alternate screen",
@@ -409,6 +423,7 @@ try:
         realrepo.mkdir()
         cmd(["git", "init", "-q", "-b", "main", str(realrepo)])
         real = start("real", realrepo, real=True)
+        finish_setup(real)
         wait(
             lambda: any(
                 w in screen(real)
