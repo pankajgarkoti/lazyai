@@ -17,13 +17,14 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"golang.org/x/term"
 
+	"lazyai/internal/agent"
 	"lazyai/internal/app"
 	"lazyai/internal/config"
 	"lazyai/internal/git"
 	"lazyai/internal/hooks"
 	"lazyai/internal/input"
-	"lazyai/internal/integration"
 	"lazyai/internal/notes"
+	"lazyai/internal/supervisor"
 	"lazyai/internal/terminal"
 )
 
@@ -49,13 +50,13 @@ func parseLaunchOptions(args []string) (launchOptions, error) {
 	var opts launchOptions
 	fs := flag.NewFlagSet("lazyai", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
-	fs.StringVar(&opts.dir, "dir", ".", "project directory to open OpenCode in")
-	fs.StringVar(&opts.bin, "opencode", "opencode", "opencode executable")
+	fs.StringVar(&opts.dir, "dir", ".", "project directory to open the configured agent in")
+	fs.StringVar(&opts.bin, "opencode", "", "override OpenCode executable (OpenCode projects only)")
 	fs.StringVar(&opts.worktree, "worktree", "", "run in a git worktree for this branch under <repo>/"+git.WorktreeDir+" (created if needed)")
 	fs.StringVar(&opts.base, "base", "", "start point for a new --worktree branch (default: HEAD)")
 	fs.Usage = func() {
 		fmt.Fprintln(os.Stderr, "Usage:")
-		fmt.Fprintln(os.Stderr, "  lazyai [options] [-- opencode args...]  Start or reattach a project session")
+		fmt.Fprintln(os.Stderr, "  lazyai [options] [-- agent args...]     Start or reattach a project session")
 		fmt.Fprintln(os.Stderr, "  lazyai list                            List known project sessions")
 		fmt.Fprintln(os.Stderr, "  lazyai --version                       Print the application version")
 		fmt.Fprintln(os.Stderr, "  lazyai stop [--dir DIR]                Stop a project session and all its workstreams")
@@ -143,18 +144,26 @@ func runDirect(args []string) error {
 	}
 	defer hookSrv.Close()
 
-	cfgDir, err := integration.DefaultDir()
+	configRoot, err := supervisor.ProjectRoot(absDir)
 	if err != nil {
 		return err
 	}
-	if _, err := integration.Materialize(cfgDir); err != nil {
+	agentConfig, err := config.LoadAgent(configRoot)
+	if err != nil {
+		return err
+	}
+	backend, err := agent.Prepare(agentConfig, opts.bin)
+	if err != nil {
+		return err
+	}
+	self, err := os.Executable()
+	if err != nil {
 		return err
 	}
 
 	baseEnv := append(os.Environ(),
 		"TERM=xterm-256color",
 		"LAZYAI=1",
-		"OPENCODE_CONFIG_DIR="+cfgDir,
 	)
 
 	// We own raw mode on the real terminal because Bubble Tea reads from a
@@ -189,17 +198,25 @@ func runDirect(args []string) error {
 	launch := func(dir, sessionID string, w, h int) (*terminal.Terminal, string, error) {
 		token := hookSrv.Register()
 		roots.Store(token, dir)
+		launchArgs := childArgs
+		if backend.Name == "opencode" {
+			launchArgs = openCodeArgs(childArgs, sessionID)
+		} else {
+			launchArgs = codexArgs(childArgs, sessionID)
+		}
+		args, env := backend.Launch(self, dir, hookSrv.URL, token, launchArgs)
 		child, err := terminal.Start(terminal.Options{
-			Command: opts.bin,
-			Args:    openCodeArgs(childArgs, sessionID),
+			Command: backend.Executable,
+			Args:    args,
 			Dir:     dir,
-			Env:     append(append([]string{}, baseEnv...), hookSrv.EnvFor(token)...),
+			Env:     append(append([]string{}, baseEnv...), env...),
 			Width:   w,
 			Height:  h,
 		})
 		if err != nil {
 			hookSrv.Unregister(token)
-			return nil, "", fmt.Errorf("start opencode: %w", err)
+			roots.Delete(token)
+			return nil, "", fmt.Errorf("start %s: %w", backend.Name, err)
 		}
 		children = append(children, child)
 		go func() {
@@ -263,20 +280,18 @@ func runDirect(args []string) error {
 
 	// Optional per-project configuration lives in the main checkout so every
 	// worktree of the repository shares one set of contracts.
-	configRoot := absDir
-	if info, err := git.Inspect(absDir); err == nil && info.Main != "" {
-		configRoot = info.Main
-	}
 	model, err := app.New(app.Config{
-		Root:        absDir,
-		Width:       cols,
-		Height:      rows,
-		Launch:      launch,
-		LaunchShell: launchShell,
-		Notes:       store,
-		SetForward:  router.SetForward,
-		SetChild:    router.SetChild,
-		LoadConfig:  func() (config.Config, []string, error) { return config.Load(configRoot) },
+		AgentExecutable: agentConfig.Executable,
+		Backend:         backend.Name,
+		Root:            absDir,
+		Width:           cols,
+		Height:          rows,
+		Launch:          launch,
+		LaunchShell:     launchShell,
+		Notes:           store,
+		SetForward:      router.SetForward,
+		SetChild:        router.SetChild,
+		LoadConfig:      func() (config.Config, []string, error) { return config.Load(configRoot) },
 	})
 	if err != nil {
 		return err

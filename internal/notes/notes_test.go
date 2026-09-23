@@ -50,6 +50,33 @@ func TestRecordAndRecent(t *testing.T) {
 	}
 }
 
+func TestAgentConversationsStaySeparateAcrossReopen(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "notes.db")
+	db, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.UpsertWorktree("/repo", "feature", "/repo/feature", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetWorktreeSession("/repo", "feature", "opencode-session"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetWorktreeCodexSession("/repo", "feature", "codex-session"); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	db, err = Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	rows, err := db.Worktrees("/repo")
+	if err != nil || len(rows) != 1 || rows[0].SessionID != "opencode-session" || rows[0].CodexSessionID != "codex-session" {
+		t.Fatalf("rows=%+v err=%v", rows, err)
+	}
+}
+
 func TestRuntimeSessionRegistryPersistsStatus(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "n.db")
 	db, err := Open(path)

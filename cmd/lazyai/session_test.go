@@ -195,6 +195,34 @@ func TestNoninteractiveLaunchHasNoSideEffects(t *testing.T) {
 	}
 }
 
+func TestCanceledFirstRunCreatesNoConfigWorktreeOrSupervisor(t *testing.T) {
+	repo := sessionTestRepo(t)
+	runtimeDir := filepath.Join(t.TempDir(), "runtime")
+	db := filepath.Join(t.TempDir(), "db")
+	t.Setenv("LAZYAI_RUNTIME_DIR", runtimeDir)
+	t.Setenv("LAZYAI_DB", db)
+	master, slave, err := pty.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer master.Close()
+	defer slave.Close()
+	if _, err := master.Write([]byte("q\n")); err != nil {
+		t.Fatal(err)
+	}
+	oldIn, oldOut := os.Stdin, os.Stdout
+	os.Stdin, os.Stdout = slave, slave
+	defer func() { os.Stdin, os.Stdout = oldIn, oldOut }()
+	if err := run([]string{"--dir", repo, "--worktree", "cancelled"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{filepath.Join(repo, ".lazyai"), filepath.Join(repo, ".worktrees"), runtimeDir, db} {
+		if _, err := os.Lstat(path); !os.IsNotExist(err) {
+			t.Fatalf("cancel created %s: %v", path, err)
+		}
+	}
+}
+
 func TestReattachIgnoresWorktreeAndRestoresTerminalModes(t *testing.T) {
 	for _, kind := range []string{supervisor.MessageDetach, supervisor.MessageExit, supervisor.MessageError} {
 		t.Run(kind, func(t *testing.T) {

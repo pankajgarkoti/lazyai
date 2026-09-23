@@ -97,6 +97,30 @@ type errString string
 
 func (e errString) Error() string { return string(e) }
 
+func TestSnapshotWaitsForConsumerAcknowledgment(t *testing.T) {
+	s, err := Listen()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	token := s.Register()
+	done := make(chan int, 1)
+	go func() { done <- post(t, s, token, `{"type":"file.snapshot","path":"dirty.txt"}`) }()
+	ev := <-s.Events
+	if ev.Reply == nil {
+		t.Fatal("snapshot was acknowledged on enqueue rather than capture")
+	}
+	select {
+	case <-done:
+		t.Fatal("snapshot returned before capture")
+	case <-time.After(20 * time.Millisecond):
+	}
+	ev.Reply <- Reply{Result: "captured"}
+	if code := <-done; code != http.StatusOK {
+		t.Fatalf("snapshot HTTP %d", code)
+	}
+}
+
 func TestPerStreamTokensStampEvents(t *testing.T) {
 	s, err := Listen()
 	if err != nil {

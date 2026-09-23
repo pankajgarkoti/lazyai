@@ -1,8 +1,8 @@
 # lazyai
 
-A lazygit-style, Vim-modal terminal UI around **OpenCode**.
+A lazygit-style, Vim-modal terminal UI around **OpenCode or Codex CLI**.
 
-OpenCode runs unchanged, as a real terminal process inside the right pane. LazyAI
+The selected agent runs unchanged, as a real terminal process inside the right pane. LazyAI
 adds a sidebar of the files the agent reads and changes, a diff viewer for the
 agent's edits, and a "Show" mode where the agent can point you at exact code
 locations with a note attached.
@@ -32,27 +32,104 @@ GitHub releases page.
 ## Run
 
 ```sh
-lazyai --dir /path/to/project [-- opencode args...]
+lazyai --dir /path/to/project [-- agent args...]
 ```
 
 Or from source:
 
 ```sh
 go build -o bin/lazyai ./cmd/lazyai
-./bin/lazyai --dir /path/to/project [-- opencode args...]
+./bin/lazyai --dir /path/to/project [-- agent args...]
 ```
 
-Requires `opencode` on `PATH` (tested with 1.18.x). Your existing OpenCode
+By default, requires `opencode` on `PATH` (tested with 1.18.x). Your existing OpenCode
 configuration, providers, sessions, skills and plugins all apply; LazyAI only
 adds one extra config directory (`OPENCODE_CONFIG_DIR`) containing its plugin
 and skill, materialized under your user cache dir.
 
-No setup is needed: LazyAI creates a commented project config on first start,
-with strict contracts disabled. See [Configuration](#configuration) to customize it.
+On first launch in a project without `.lazyai/config.yaml`, LazyAI asks a few
+setup questions before starting the agent. Existing configurations are reused.
+
+## First-run project setup
+
+The setup asks for:
+
+1. **Coding agent:** OpenCode or Codex. OpenCode is the default when installed;
+   Codex is suggested when it is the only one available.
+2. **Executable:** an optional custom path; blank uses the agent on `PATH`.
+3. **Strict mode:** whether entering the agent opens a structured task form
+   instead of accepting free-form instructions. Default: off.
+4. **Default workflow:** which of the seven bundled contract templates is
+   selected first. Default: `task`; this also applies if strict mode is enabled later.
+
+Press Enter to accept a default, enter a choice's name or number, or type `q`
+to cancel. A final summary asks whether to save and start. Invalid selections
+are re-prompted, and LazyAI checks the executable before saving. Cancellation or
+end-of-input leaves the project unconfigured and starts no supervisor, agent,
+branch or worktree.
+
+The commented config, including all seven editable templates, is saved in the
+main checkout so linked worktrees share it. Existing files are never overwritten,
+including malformed configurations. Reattaching to a running session skips setup.
+Model/provider settings remain in the selected agent's native configuration.
+See [Configuration](#configuration) for changes after setup.
+
+## Choosing OpenCode or Codex
+
+Set the agent **once per project**, in the main checkout's `.lazyai/config.yaml`:
+
+```yaml
+version: 1
+agent:
+  backend: codex # opencode | codex; omitted means opencode
+  # executable: /absolute/path/to/codex # optional; defaults to backend on PATH
+interactive:
+  strict: false
+```
+
+All workstreams use that agent, including `w`, `R`, and agent-driven
+`setup_workstreams`. Linked worktrees share the main checkout's setting.
+Codex requires version **0.155.1 or newer**; the integration is tested against
+0.155.1. Arguments after `--` go to the selected CLI. The existing `--opencode`
+executable override remains available for OpenCode projects.
+
+To switch, edit the setting, run `lazyai stop --dir /path/to/project`, and launch
+LazyAI again. Use `R` to reopen the previous workstreams. Reloading config with
+`Ctrl+Space c` applies contract changes immediately and displays **restart
+required** for agent changes. Detach/reattach keeps the running agent and its
+screen, even if the file has changed. A full stop retains worktree identities and
+saved Show records, but not live screens, in-memory diff baselines or drafts.
+Native chat histories remain with their respective agents. Reopened workstreams
+resume the saved conversation for the selected backend; OpenCode and Codex IDs
+are stored separately so switching back preserves the previous conversation.
+
+**Codex setup:** LazyAI adds invocation-scoped lifecycle hooks and a `lazyai`
+stdio MCP server. Your Codex auth, model, sandbox, skills, and other configuration
+remain in their normal locations. At the native **Hooks need review** dialog,
+review and trust LazyAI's hooks; `/hooks` opens that review later. LazyAI does not
+bypass hook trust or approve agent actions. If strict contracts are enabled,
+`Ctrl+Space f` temporarily permits direct input for startup dialogs.
+
+The status bar shows `codex` with separate tool/hook readiness until both have
+connected. Hook readiness appears after the first lifecycle callback (normally
+the first submitted turn). `/mcp` lists `show_locations`, `setup_workstreams`,
+and `read_file`. Codex receives instructions for contracts and references, and
+to prefer `read_file` so reads appear in the sidebar. `apply_patch` changes are
+tracked with acknowledged pre-edit snapshots, including multi-file patches,
+moves, adds and deletes. Shell-based reads/writes and arbitrary third-party file
+tools are not automatically tracked. Hosted tools without lifecycle callbacks
+also cannot drive the activity spinner.
+
+Unknown backends, missing executables and unsupported Codex versions fail at
+startup instead of launching another agent. Invalid contract templates still
+open the UI with strict entry disabled and a config error; malformed YAML or an
+unsupported config version prevents a new session from choosing a backend.
+
+See [integration details and verification](docs/agent-backends.md).
 
 ## Versioning and release builds
 
-Current version: **0.6.0** (0.2: workstream identities, agent-driven
+Current version: **0.7.0** (0.2: workstream identities, agent-driven
 workstream setup, strict contract entry, accurate activity indicators; 0.2.1
 replaces the strip detail row with the `K` details float; 0.2.2 makes `j`/`k`
 browse workstreams in Normal and adds `Ctrl+Space` `q` to quit a session;
@@ -61,7 +138,8 @@ the `jk` chord with `Ctrl+]` for a real Escape, a keymap change; 0.4.0 creates
 editable project defaults with workflow contracts and separate drafts; 0.5.0
 adds the seven-workflow picker, rounded responsive forms, and direct handoff for
 agent questions and permissions; 0.6.0 resumes a workstream's OpenCode
-conversation when the workstream is reopened).
+conversation when the workstream is reopened; 0.7.0 adds per-project Codex/OpenCode
+selection, first-run setup, and backend-specific conversation resume).
 LazyAI uses Semantic Versioning (`MAJOR.MINOR.PATCH`). During `0.x`
 development, new features and breaking changes increment the minor version;
 compatible fixes increment the patch version. Version `1.0.0` will mark a stable
@@ -87,7 +165,7 @@ it stays a documented local pre-release gate.
 
 LazyAI keeps one session alive per project when its terminal client detaches.
 Starting LazyAI again from the repository or any linked worktree reattaches to
-the same OpenCode processes and restores their current screen.
+the same agent processes and restores their current screen.
 
 ```sh
 lazyai                         # start or reattach this project
@@ -96,7 +174,7 @@ lazyai stop --dir ~/code/app   # terminate one project's session
 lazyai --help                  # show launch options and session controls
 ```
 
-`Ctrl+Q` detaches from any screen without stopping OpenCode, shells, hooks, or
+`Ctrl+Q` detaches from any screen without stopping the agent, shells, hooks, or
 workstreams. Closing the terminal client has the same persistence behavior. A
 new attachment takes over from an older client. Launch options apply when a
 session starts; reattaching keeps the already-running session and its original
@@ -123,7 +201,7 @@ that state instead of pretending to reconstruct those processes.
 
 ## Modes and keys
 
-**Interactive** (default) – the real OpenCode TUI owns the keyboard.
+**Interactive** (default) – the real agent TUI owns the keyboard.
 `Esc` focuses out into **Normal**: the same OpenCode window, fully visible,
 just with no input routed to it (the border and `NORMAL` indicator show it) until
 `i` (or `Enter`). `t` opens a **Terminal** (your `$SHELL` in the
@@ -177,7 +255,7 @@ into OpenCode's prompt and returns to Interactive so you can keep typing.
 
 ## Workstreams (worktrees)
 
-A workstream is one OpenCode child running in its own git worktree, with its
+A workstream is one agent child running in its own git worktree, with its
 own file ledger, Diff/Show state and remembered mode. LazyAI hosts any number
 of them in the same interface; exactly one is current.
 
@@ -262,11 +340,10 @@ repository of the workstream whose agent made them.
 
 ## Configuration
 
-LazyAI works out of the box: by default you type directly into OpenCode.
-When the project config is missing, LazyAI creates `.lazyai/config.yaml` with
+LazyAI works out of the box: by default you type directly into the selected agent.
+When a new project's config is missing, first-run setup creates `.lazyai/config.yaml` with
 every supported option written out, explanatory comments, and seven ready-to-edit
-contract templates. **Strict mode is off**, so none of the templates changes
-how you type until you enable it.
+contract templates. **Strict mode defaults to off**; setup lets you enable it.
 
 ### Where configuration lives
 
@@ -284,9 +361,10 @@ how you type until you enable it.
 
 ### Start small
 
-Start LazyAI, then edit `.lazyai/config.yaml` in the main checkout. The generated
-file starts with `version: 1`, `strict: false`, and `default_contract: task`,
-followed by the templates. Existing files are **never overwritten or upgraded**,
+Start LazyAI and answer the setup questions, then edit `.lazyai/config.yaml` in the
+main checkout as needed. The generated file starts with `version: 1`, your chosen
+agent, strict-mode setting and default workflow, followed by the templates.
+Existing files are **never overwritten or upgraded**,
 even if they are empty or invalid. To add newly shipped templates to an older
 config, copy the ones you want from the [shipped config](internal/config/default.yaml).
 
@@ -299,8 +377,8 @@ interactive:
   strict: false
 ```
 
-LazyAI currently uses this file for structured instruction entry, called
-**strict contracts**. It is not yet a general settings file for themes or
+LazyAI uses this file for the project agent and structured instruction entry,
+called **strict contracts**. It is not a settings file for themes or
 keybindings. You can commit it to share the same templates with your team,
 or keep it local using Git's ignore rules.
 
@@ -383,6 +461,8 @@ You can rename the template and add or remove fields to fit your workflow:
 | Setting | What it does |
 |---|---|
 | `version` | Required; currently `1` |
+| `agent.backend` | `opencode` (default) or `codex`; applies to all workstreams on the next project-session start |
+| `agent.executable` | Optional executable path/name for the selected backend; changes require a session restart |
 | `interactive.strict` | Defaults to `false`; `true` enables the form and requires at least one contract |
 | `interactive.default_contract` | Initially highlighted contract; must exist in `contracts` if set. If omitted, LazyAI highlights the first name alphabetically |
 | `interactive.contracts` | Named templates, each with an optional `title` and a non-empty `fields` list |
@@ -419,7 +499,7 @@ else; unknown top-level keys only warn. Field types are `text` (one line) and
 override with `LAZYAI_DB`) keeps, per repository:
 
 - `show_sets` / `show_locations` — every accepted `show_locations` set with
-  its notes, branch and OpenCode session id.
+  its notes, branch and agent session id (Codex IDs are prefixed with `codex:`).
 - `worktrees` — every worktree LazyAI ran a workstream in, with created /
   last-opened times, a `dormant` flag, and (schema v1) its `nickname` and
   `description`. `a` archives the current workstream (stops its OpenCode and
@@ -493,7 +573,10 @@ internal/terminal     child process in a PTY + VT emulator + screen renderer
 internal/input        raw byte router: child vs host, Ctrl+] / Ctrl+Space / Ctrl+Z / Ctrl+Q host keys
 internal/hooks        loopback HTTP receiver for plugin events (one token per workstream); setup requests get a reply
 internal/integration  embedded OpenCode plugin (show_locations, setup_workstreams) + skill, materialized on start
+internal/agent        project backend selection, executable checks and invocation-scoped integration settings
+internal/codex        Codex lifecycle hook adapter and stdio MCP tools
 internal/config       creates/loads .lazyai/config.yaml: default templates, validation, deterministic rendering
+internal/onboarding   first-run terminal questions and non-overwriting configuration initialization
 internal/activity     file ledger (read/modified/shown, reasons, baselines)
 internal/diff         unified diff + hunk parsing
 internal/show         quickfix-style location set validation and source loading

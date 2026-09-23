@@ -2,8 +2,8 @@
 """Drive LazyAI in an isolated tmux server and disposable projects.
 
 Requires tmux 3.7+ (literal paste support), git, Python 3 and a built LazyAI.
---real-opencode additionally exercises the installed OpenCode without submitting
-an agent request. Artifacts are retained in the printed temporary directory.
+--real-opencode and --real-codex additionally exercise the installed CLIs without
+submitting agent requests. Artifacts are retained in the printed temporary directory.
 """
 
 import argparse, os, subprocess, pathlib, tempfile, time, json, shlex, signal, sqlite3
@@ -11,6 +11,7 @@ import argparse, os, subprocess, pathlib, tempfile, time, json, shlex, signal, s
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--binary", default="./bin/lazyai")
 parser.add_argument("--real-opencode", action="store_true")
+parser.add_argument("--real-codex", action="store_true")
 options = parser.parse_args()
 base = pathlib.Path(tempfile.mkdtemp(prefix="lazyai-drive-", dir="/private/tmp"))
 print("ARTIFACTS", base, flush=True)
@@ -134,6 +135,17 @@ def screen(p):
     return tm("capture-pane", "-p", "-t", p)
 
 
+def finish_setup(p):
+    # The real first-run wizard runs before the supervisor/raw terminal starts.
+    for label, answer in (("Coding agent", "opencode"), ("Executable path", ""),
+                          ("Enable strict mode", "no"), ("Default workflow", "task"),
+                          ("Save and start", "yes")):
+        wait(lambda: label in screen(p), "setup: " + label)
+        if answer:
+            tm("send-keys", "-t", p, "-l", answer)
+        tm("send-keys", "-t", p, "Enter")
+
+
 def modes(p):
     return tm(
         "display-message",
@@ -167,7 +179,10 @@ def alive(pid):
 p = None
 try:
     p = start("first", repo / "src" / "pkg")
+    finish_setup(p)
     wait(lambda: "READY" in screen(p), "first screen")
+    check((repo / ".lazyai" / "config.yaml").exists() and not (repo / "src" / "pkg" / ".lazyai").exists(),
+          "first-run setup saves one configuration in the canonical main checkout")
     check(
         modes(p) == "1 1 1 1",
         "client enables mouse, SGR, bracketed paste and alternate screen",
@@ -215,7 +230,7 @@ try:
     # The helper answers SHOWME with a 40-location Show set: LazyAI enters
     # Show mode with a list longer than the sidebar. Wheeling over that list
     # (a native LazyAI hit target) moves the selection and scrolls the list.
-    check("● plugin" in screen(p), "plugin hello reaches the status bar")
+    check("● opencode" in screen(p), "plugin hello reaches the status bar")
     tm("send-keys", "-t", p, "-l", "SHOWME")
     wait(lambda: "showcase.txt:1" in screen(p), "show set opens")
     check("showcase.txt:40" not in screen(p), "long show list starts scrolled to the top")
@@ -408,6 +423,7 @@ try:
         realrepo.mkdir()
         cmd(["git", "init", "-q", "-b", "main", str(realrepo)])
         real = start("real", realrepo, real=True)
+        finish_setup(real)
         wait(
             lambda: any(
                 w in screen(real)
@@ -423,7 +439,7 @@ try:
         )
         # The bundled plugin (show_locations + setup_workstreams) loads in the
         # real OpenCode: its hello reaches the status bar.
-        wait(lambda: "● plugin" in screen(real), "real OpenCode loads the LazyAI plugin", timeout=60)
+        wait(lambda: "● opencode" in screen(real), "real OpenCode loads the LazyAI plugin", timeout=60)
         check(True, "real OpenCode loads the bundled plugin with both tools")
         tm("send-keys", "-t", real, "-l", "detach-attach smoke draft")
         wait(
@@ -445,6 +461,43 @@ try:
             "real OpenCode renders, accepts a draft, detaches and restores it on the same supervisor",
         )
         cmd([binary, "stop", "--dir", str(realrepo)], env=env)
+    if options.real_codex:
+        codexrepo = base / "real-codex"
+        (codexrepo / ".lazyai").mkdir(parents=True)
+        cmd(["git", "init", "-q", "-b", "main", str(codexrepo)])
+        (codexrepo / ".lazyai" / "config.yaml").write_text("version: 1\nagent:\n  backend: codex\n")
+        pane = start("codex", codexrepo, real=True)
+        wait(lambda: "Codex" in screen(pane) or "codex" in screen(pane), "Codex startup", timeout=60)
+        handled = set()
+        def codex_ready():
+            text = screen(pane)
+            # Skip updates and leave the user's hook trust unchanged. The
+            # offline drive separately tests trusted hooks in an isolated home.
+            for title, choice in (("Update available", "2"), ("Hooks need review", "3")):
+                if title in text and title not in handled:
+                    handled.add(title)
+                    tm("send-keys", "-t", pane, choice, "Enter")
+                    return False
+            if "trust" in text.lower() and ("folder" in text.lower() or "directory" in text.lower()) and "project" not in handled:
+                handled.add("project")
+                tm("send-keys", "-t", pane, "Enter")
+                return False
+            return "tools:ok" in text or "● codex" in text
+        wait(codex_ready, "Codex MCP startup", timeout=60)
+        tm("send-keys", "-t", pane, "Escape")
+        tm("send-keys", "-t", pane, "i")
+        tm("send-keys", "-t", pane, "-l", "codex detach-attach smoke draft")
+        wait(lambda: "codex detach-attach smoke draft" in screen(pane), "Codex typed draft", timeout=30)
+        codexpid = [r[1] for r in sessions() if r[0] == str(codexrepo)][0]
+        tm("send-keys", "-t", pane, "C-q")
+        wait(lambda: "CLIENT_EXIT" in screen(pane), "Codex detach")
+        # Changing config must not replace a live project on reattach.
+        (codexrepo / ".lazyai" / "config.yaml").write_text("version: 1\nagent:\n  backend: opencode\n")
+        pane2 = start("codex2", codexrepo, real=True)
+        wait(lambda: "codex detach-attach smoke draft" in screen(pane2), "Codex draft restored", timeout=30)
+        check([r[1] for r in sessions() if r[0] == str(codexrepo)][0] == codexpid,
+              "real Codex renders, accepts a draft, and reattaches unchanged after a backend config edit")
+        cmd([binary, "stop", "--dir", str(codexrepo)], env=env)
     print("ALL TMUX CHECKS PASSED", flush=True)
 finally:
     try:

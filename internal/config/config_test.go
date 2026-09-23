@@ -60,7 +60,8 @@ func TestMissingFileCreatesExplicitDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 	var raw struct {
-		Version     *int `yaml:"version"`
+		Version     *int  `yaml:"version"`
+		Agent       Agent `yaml:"agent"`
 		Interactive struct {
 			Strict          *bool  `yaml:"strict"`
 			DefaultContract string `yaml:"default_contract"`

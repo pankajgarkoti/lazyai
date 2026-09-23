@@ -57,6 +57,8 @@ type Event struct {
 	Token     string     `json:"-"`
 	Type      string     `json:"type"`
 	Version   int        `json:"version,omitempty"`
+	Component string     `json:"component,omitempty"`
+	Backend   string     `json:"backend,omitempty"`
 	SessionID string     `json:"sessionID,omitempty"`
 	CallID    string     `json:"callID,omitempty"`
 	Tool      string     `json:"tool,omitempty"`
@@ -71,7 +73,7 @@ type Event struct {
 }
 
 // IsRequest reports whether the event expects a Reply.
-func (e Event) IsRequest() bool { return e.Type == "setup" }
+func (e Event) IsRequest() bool { return e.Type == "setup" || e.Type == "file.snapshot" }
 
 // DefaultRequestTimeout bounds how long a request event waits for the model.
 // Setup may show a confirmation overlay, so this is generous.
@@ -166,6 +168,9 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 	timeout := s.RequestTimeout
 	if timeout <= 0 {
 		timeout = DefaultRequestTimeout
+	}
+	if ev.Type == "file.snapshot" && timeout > 2*time.Second {
+		timeout = 2 * time.Second
 	}
 	select {
 	case reply := <-ev.Reply:

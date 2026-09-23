@@ -1,6 +1,12 @@
 # LazyAI project configuration. Existing files are never replaced or upgraded.
 version: 1
 
+agent:
+  # All workstreams use this backend. Changes require lazyai stop, then relaunch.
+  backend: opencode # opencode | codex
+  # Optional executable path; defaults to the backend name on PATH.
+  # executable: /path/to/codex
+
 interactive:
   # Templates are inactive until strict is true; free-form input is the default.
   strict: false
