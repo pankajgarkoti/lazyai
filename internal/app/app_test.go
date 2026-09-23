@@ -563,7 +563,7 @@ func TestShowViewHighlightsSourceAndMarksTarget(t *testing.T) {
 	}
 	// The status bar carries the badge and one Neovim-style mode indicator.
 	status := stripANSI(h.m.renderStatus())
-	for _, want := range []string{theme.Badge, " SHOW·1 ", "plugin"} {
+	for _, want := range []string{theme.Badge, " SHOW·1 ", "opencode"} {
 		if !strings.Contains(status, want) {
 			t.Errorf("status %q missing %q", status, want)
 		}

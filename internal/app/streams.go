@@ -372,6 +372,8 @@ func (m Model) leaderKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch {
 		case m.configErr != "":
 			m.notice = "config: " + m.configErr
+		case m.backendPending:
+			m.notice = "agent changed; restart required (lazyai stop, then relaunch)"
 		case m.project.Loaded:
 			m.notice = "config reloaded from " + m.project.Path
 		default:
@@ -405,7 +407,7 @@ func (m Model) requestClose() (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 	m.pendingClose = m.name
-	m.notice = fmt.Sprintf("close workstream %s and stop its OpenCode? press x again", m.displayName())
+	m.notice = fmt.Sprintf("close workstream %s and stop its %s? press x again", m.displayName(), m.backend())
 	return m, nil
 }
 
@@ -466,7 +468,7 @@ func (m *Model) OpenWorkstream(spec hooks.WorkstreamSpec, activate bool) (Workst
 		_ = m.cfg.Notes.SetWorktreeIdentity(m.repo.Main, spec.Branch, nickname, description)
 	}
 	if _, err := m.addStreamOpts(path, spec.Branch, nickname, description, activate); err != nil {
-		return fail(fmt.Errorf("worktree ready at %s but OpenCode failed to start: %w", path, err))
+		return fail(fmt.Errorf("worktree ready at %s but %s failed to start: %w", path, m.backend(), err))
 	}
 	res.Launched = true
 	return res, nil

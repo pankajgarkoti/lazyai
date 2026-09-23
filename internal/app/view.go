@@ -106,6 +106,10 @@ func (m Model) renderStatus() string {
 		mid = theme.Notice.Render(" " + theme.IconWarn + " " + m.notice)
 	case m.configErr != "":
 		mid = theme.Notice.Render(" "+theme.IconWarn+" config error") + theme.StatusDim.Render(" · ctrl+space c reloads · ") + theme.Notice.Render(m.configErr)
+	case m.backendPending:
+		mid = theme.Notice.Render(" agent changed · restart required")
+	case m.integrationErr != "":
+		mid = theme.Notice.Render(" integration: " + m.integrationErr)
 	}
 
 	avail := m.width - lipgloss.Width(left) - lipgloss.Width(right)
@@ -161,10 +165,25 @@ func (m Model) renderMode() string {
 // renderStatusRight mirrors tmux's status-right plugin blocks.
 func (m Model) renderStatusRight() string {
 	var plug string
+	label := m.backend()
+	if m.backend() == "codex" && !m.pluginOK {
+		label += " tools:"
+		if m.toolsOK {
+			label += "ok"
+		} else {
+			label += "?"
+		}
+		label += " hooks:"
+		if m.hooksOK {
+			label += "ok"
+		} else {
+			label += "? (/hooks)"
+		}
+	}
 	if m.pluginOK {
-		plug = theme.SepOnBG.Render(theme.Sep) + theme.AccentBlock.Render(" "+theme.Dot+" plugin ")
+		plug = theme.SepOnBG.Render(theme.Sep) + theme.AccentBlock.Render(" "+theme.Dot+" "+label+" ")
 	} else {
-		plug = theme.StatusDim.Render(" "+theme.Ring+" plugin ") + theme.SepOnBG.Render(theme.Sep)
+		plug = theme.StatusDim.Render(" "+theme.Ring+" "+label+" ") + theme.SepOnBG.Render(theme.Sep)
 	}
 	n := m.ledger.Len()
 	files := fmt.Sprintf(" %s %d ", theme.IconFiles, n)
@@ -202,7 +221,7 @@ func (m Model) renderHint() string {
 	case m.help:
 		hints = []kv{{"?", "close"}, {"esc", "close"}}
 	case m.mode == ModeInteractive && m.focus == FocusContent:
-		hints = []kv{{"esc", "normal"}, {"ctrl+]", "esc→opencode"}, {"ctrl+space", "workstreams"}, {"ctrl+z", "zoom"}}
+		hints = []kv{{"esc", "normal"}, {"ctrl+]", "esc→" + m.backend()}, {"ctrl+space", "workstreams"}, {"ctrl+z", "zoom"}}
 	case m.mode == ModeTerminal && m.focus == FocusContent:
 		hints = []kv{{"esc", "normal"}, {"ctrl+]", "esc→shell"}, {"ctrl+space", "workstreams"}, {"ctrl+z", "zoom"}}
 	case m.info:
@@ -217,12 +236,12 @@ func (m Model) renderHint() string {
 		}
 	case m.mode == ModeDiff && m.focus == FocusSidebar:
 		hints = []kv{{"j/k", "file"}, {"enter", "hunks"}, {"r", "reference"}}
-		hints = append(hints, kv{"esc", "normal"}, kv{"i", "opencode"})
+		hints = append(hints, kv{"esc", "normal"}, kv{"i", m.backend()})
 	case m.mode == ModeDiff:
 		hints = []kv{{"j/k", "scroll"}, {"[ ]", "hunk"}, {"r", "reference hunk"}, {"esc", "files"}}
 	case m.mode == ModeShow && m.focus == FocusSidebar:
 		hints = []kv{{"j/k", "location"}, {"[ ]", "location"}, {"enter", "source"}, {"r", "reference"}}
-		hints = append(hints, kv{"esc", "normal"}, kv{"i", "opencode"})
+		hints = append(hints, kv{"esc", "normal"}, kv{"i", m.backend()})
 	case m.mode == ModeShow:
 		hints = []kv{{"j/k", "scroll"}, {"[ ]", "location"}, {"r", "reference"}, {"esc", "list"}}
 	}
@@ -642,9 +661,9 @@ func renderHelp(w int) []string {
 	sections := []struct{ title, keys string }{
 		{"session lifecycle (available on every screen)", "ctrl+q: detach and keep all work running · reattach: run lazyai for the project · ctrl+space q: quit the session (stops every workstream, after confirming) · lazyai list: inspect sessions · lazyai stop --dir DIR: stop a project and all workstreams"},
 		{"interactive / terminal (the pane owns the keys)", "esc: normal (pane remains visible, no input) · ctrl+]: send a real ESC into the pane · ctrl+space: workstream leader · ctrl+z: zoom"},
-		{"normal (pane focused out)", "i: opencode · t: terminal · d: diff (when there are changes) · s: show (when the agent pointed at code) · j/k: previous / next workstream · h/l: pick a file for d · enter: back into the pane"},
-		{"workstreams (one OpenCode per git worktree)", "j / k in normal, h / l in diff / show: previous / next · w: new or wake a dormant worktree (branch, nickname, optional description) · K: details float (branch, description, worktree, activity; any key closes) · R: restore the workstreams the previous session left open · e: rename the current one · a: archive (dormant: stops OpenCode, keeps the worktree) · x x: close · from a pane: ctrl+space then h / l / 1-9 / ctrl+space (last) / w / R / K / e / a / x"},
-		{"strip glyphs", "! OpenCode waits on you · spinner: tool calls running · " + theme.Unseen + " output you have not looked at · " + theme.Dot + " idle"},
+		{"normal (pane focused out)", "i: agent · t: terminal · d: diff (when there are changes) · s: show (when the agent pointed at code) · j/k: previous / next workstream · h/l: pick a file for d · enter: back into the pane"},
+		{"workstreams (one agent per git worktree)", "j / k in normal, h / l in diff / show: previous / next · w: new or wake a dormant worktree (branch, nickname, optional description) · K: details float (branch, description, worktree, activity; any key closes) · R: restore the workstreams the previous session left open · e: rename the current one · a: archive (dormant: stops the agent, keeps the worktree) · x x: close · from a pane: ctrl+space then h / l / 1-9 / ctrl+space (last) / w / R / K / e / a / x"},
+		{"strip glyphs", "! agent waits on you · spinner: tool calls running · " + theme.Unseen + " output you have not looked at · " + theme.Dot + " idle"},
 		{"strict contracts (.lazyai/config.yaml)", "i / enter: choose a template, then fill its form · arrows / 1-9 / enter: choose · ctrl+t: change template · tab: next field · ctrl+s: send · esc: keep draft and close · agent questions and permissions bypass the form · ctrl+space f: freestyle · ctrl+space c: reload config"},
 		{"sidebar (diff / show)", "j/k: select · h/l: workstream · 1-9: jump · enter: focus content · esc: normal · tab: focus"},
 		{"content", "j/k: scroll · ctrl+d/u: half page · g/G: top/bottom · esc/h: back to sidebar"},

@@ -16,6 +16,10 @@ import (
 
 	"golang.org/x/term"
 
+	"lazyai/internal/agent"
+	"lazyai/internal/codex"
+	"lazyai/internal/config"
+	"lazyai/internal/hooks"
 	"lazyai/internal/notes"
 	"lazyai/internal/supervisor"
 )
@@ -23,6 +27,15 @@ import (
 func run(args []string) error {
 	if len(args) > 0 {
 		switch args[0] {
+		case "__mcp":
+			return codex.FromEnv().ServeMCP(os.Stdin, os.Stdout)
+		case "__codex-hook":
+			bridge := codex.FromEnv()
+			if err := bridge.Hook(os.Stdin, os.Stdout); err != nil {
+				_, _ = bridge.Send(hooks.Event{Type: "integration.error", Title: err.Error()})
+				return err
+			}
+			return nil
 		case "--version", "-version", "version":
 			fmt.Fprintln(os.Stdout, "lazyai", version)
 			return nil
@@ -63,6 +76,15 @@ func attachSession(args []string) error {
 	socket := supervisor.SocketPath(project)
 	conn, err := net.Dial("unix", socket)
 	if err != nil {
+		// Fail in the attached client, before creating worktrees or a supervisor.
+		// Existing sessions are reattached without reinterpreting launch config.
+		cfg, configErr := config.LoadAgent(project)
+		if configErr != nil {
+			return configErr
+		}
+		if _, err := agent.Prepare(cfg, opts.bin); err != nil {
+			return err
+		}
 		root, err = prepareRoot(opts)
 		if err != nil {
 			return err
@@ -147,7 +169,11 @@ func startSupervisor(project, root, socket, dbPath string, opts launchOptions, o
 	if err != nil {
 		return err
 	}
-	directArgs := []string{"--dir", root, "--opencode", opts.bin, "--"}
+	directArgs := []string{"--dir", root}
+	if opts.bin != "" {
+		directArgs = append(directArgs, "--opencode", opts.bin)
+	}
+	directArgs = append(directArgs, "--")
 	directArgs = append(directArgs, opts.child...)
 	originalJSON, err := json.Marshal(originalArgs)
 	if err != nil {
@@ -261,7 +287,7 @@ func stopSession(args []string) error {
 	dir := fs.String("dir", ".", "project directory to stop")
 	fs.Usage = func() {
 		fmt.Fprintln(os.Stderr, "Usage: lazyai stop [--dir DIR]")
-		fmt.Fprintln(os.Stderr, "\nStop the project session and all workstreams, including their OpenCode and shell processes.")
+		fmt.Fprintln(os.Stderr, "\nStop the project session and all workstreams, including their agent and shell processes.")
 		fmt.Fprintln(os.Stderr, "\nOptions:")
 		fs.PrintDefaults()
 	}

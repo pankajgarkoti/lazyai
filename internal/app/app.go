@@ -121,14 +121,16 @@ type ConfigLoader func() (config.Config, []string, error)
 
 // Config wires the model to the process.
 type Config struct {
-	Root          string
-	Width, Height int // initial terminal size (0 = unknown yet)
-	Launch        Launcher
-	LaunchShell   ShellLauncher    // nil disables t
-	Notes         NotesStore       // nil disables persistence
-	SetForward    func(bool)       // route raw keys to the child (true) or to LazyAI
-	SetChild      func(input.Sink) // retarget raw keys to another child
-	LoadConfig    ConfigLoader     // nil: no project configuration
+	AgentExecutable string // project setting, before PATH resolution/CLI override
+	Backend         string // frozen for the lifetime of this project session
+	Root            string
+	Width, Height   int // initial terminal size (0 = unknown yet)
+	Launch          Launcher
+	LaunchShell     ShellLauncher    // nil disables t
+	Notes           NotesStore       // nil disables persistence
+	SetForward      func(bool)       // route raw keys to the child (true) or to LazyAI
+	SetChild        func(input.Sink) // retarget raw keys to another child
+	LoadConfig      ConfigLoader     // nil: no project configuration
 }
 
 // working reports whether any tool call is in flight on the stream.
@@ -151,12 +153,17 @@ type stream struct {
 	mode  Mode
 	focus Focus
 
-	pluginOK  bool
-	active    map[string]bool              // in-flight tool calls by call id
-	attention bool                         // OpenCode is waiting on the user (permission/question)
-	unseen    bool                         // background output / show set not yet looked at
-	freestyle bool                         // strict contracts bypassed for this stream
-	draft     map[string]map[string]string // contract name -> field values for this stream
+	pluginOK       bool
+	toolsOK        bool
+	hooksOK        bool
+	integrationErr string
+	agentSession   string
+	attentionCalls map[string]bool
+	active         map[string]bool              // in-flight tool calls by call id
+	attention      bool                         // OpenCode is waiting on the user (permission/question)
+	unseen         bool                         // background output / show set not yet looked at
+	freestyle      bool                         // strict contracts bypassed for this stream
+	draft          map[string]map[string]string // contract name -> field values for this stream
 
 	// Diff state
 	fileSel    int
@@ -209,11 +216,12 @@ type Model struct {
 	leader       bool   // Ctrl+Space pressed; next key is a workstream command
 	pendingClose string // stream name awaiting a second "x"
 
-	project    config.Config // validated .lazyai/config.yaml (zero when absent/invalid)
-	configErr  string        // persistent configuration error shown in the status bar
-	configWarn string
-	contract   *contractForm // open strict-entry form
-	setup      *setupRequest // agent setup awaiting confirmation
+	project        config.Config // validated .lazyai/config.yaml (zero when absent/invalid)
+	configErr      string        // persistent configuration error shown in the status bar
+	backendPending bool
+	configWarn     string
+	contract       *contractForm // open strict-entry form
+	setup          *setupRequest // agent setup awaiting confirmation
 
 	spin    int  // spinner frame
 	ticking bool // a TickMsg is scheduled
@@ -258,6 +266,7 @@ func newPrompt(placeholder string, limit int) textinput.Model {
 // entry and leaves a persistent error; it never keeps a stale contract.
 func (m *Model) reloadConfig() {
 	m.project, m.configErr, m.configWarn = config.Config{}, "", ""
+	m.backendPending = false
 	if m.cfg.LoadConfig == nil {
 		return
 	}
@@ -268,9 +277,17 @@ func (m *Model) reloadConfig() {
 		return
 	}
 	m.project = cfg
+	m.backendPending = cfg.Agent.Backend != m.backend() || cfg.Agent.Executable != m.cfg.AgentExecutable
 	if len(warnings) > 0 {
 		m.configWarn = strings.Join(warnings, "; ")
 	}
+}
+
+func (m Model) backend() string {
+	if m.cfg.Backend == "" {
+		return "opencode"
+	}
+	return m.cfg.Backend
 }
 
 // strictActive reports whether instruction entry for the current stream goes
@@ -527,22 +544,60 @@ func (m *Model) applyHook(ev hooks.Event) tea.Cmd {
 
 	switch ev.Type {
 	case "hello":
-		s.pluginOK = true
+		if ev.SessionID != "" {
+			s.agentSession = ev.SessionID
+		}
+		switch ev.Component {
+		case "tools":
+			s.toolsOK = true
+		case "hooks":
+			s.hooksOK = true
+		default:
+			s.toolsOK, s.hooksOK = true, true
+		}
+		s.pluginOK = s.toolsOK && s.hooksOK
+	case "integration.error":
+		s.integrationErr = ev.Title
+	case "goodbye":
+		if ev.Component == "tools" {
+			s.toolsOK = false
+		}
+		if ev.Component == "hooks" {
+			s.hooksOK = false
+		}
+		s.pluginOK = s.toolsOK && s.hooksOK
 	case "tool.before":
 		if s.active == nil {
 			s.active = map[string]bool{}
 		}
 		s.active[callID(ev)] = true
-		s.attention = false
+		if ev.Backend != "codex" {
+			s.attention = false
+		}
 		if !m.ticking {
 			m.ticking = true
 			cmd = tickCmd()
 		}
 	case "tool.after":
 		delete(s.active, callID(ev))
+	case "attention.clear":
+		if ev.CallID == "" {
+			s.attentionCalls = nil
+		} else {
+			delete(s.attentionCalls, ev.CallID)
+		}
+		s.attention = len(s.attentionCalls) > 0
 	case "idle":
 		s.active = nil // clears calls whose after-event was lost
+		s.attention = false
+		s.attentionCalls = nil
 	case "attention":
+		if ev.Backend == "codex" {
+			if s.attentionCalls == nil {
+				s.attentionCalls = map[string]bool{}
+			}
+			s.attentionCalls[ev.CallID] = true
+		}
 		s.attention = true
 		if isCur && m.contract != nil {
 			m.closeContract()
@@ -550,6 +605,11 @@ func (m *Model) applyHook(ev hooks.Event) tea.Cmd {
 		}
 	case "file.before":
 		s.ledger.Snapshot(ev.Path)
+	case "file.snapshot":
+		err := s.ledger.Snapshot(ev.Path)
+		if ev.Reply != nil {
+			ev.Reply <- hooks.Reply{Result: "captured", Err: err}
+		}
 	case "file.read":
 		s.ledger.MarkRead(ev.Path)
 	case "file.write":
@@ -577,7 +637,14 @@ func (m *Model) applyHook(ev hooks.Event) tea.Cmd {
 		set.Sequence = s.showSeq
 		s.showSet = &set
 		if m.cfg.Notes != nil {
-			if err := m.cfg.Notes.Record(s.root, s.repo.Branch, ev.SessionID, set); err != nil && isCur {
+			sessionID := ev.SessionID
+			if sessionID == "" {
+				sessionID = s.agentSession
+			}
+			if m.backend() == "codex" {
+				sessionID = "codex:" + sessionID
+			}
+			if err := m.cfg.Notes.Record(s.root, s.repo.Branch, sessionID, set); err != nil && isCur {
 				m.notice = "notes: " + err.Error()
 			}
 		}

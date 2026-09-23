@@ -61,9 +61,16 @@ type Interactive struct {
 	Contracts       map[string]Contract `yaml:"contracts"`
 }
 
+// Agent selects the native CLI for every workstream in this project.
+type Agent struct {
+	Backend    string `yaml:"backend"`
+	Executable string `yaml:"executable,omitempty"`
+}
+
 // Config is the loaded, validated project configuration.
 type Config struct {
 	Version     int         `yaml:"version"`
+	Agent       Agent       `yaml:"agent"`
 	Interactive Interactive `yaml:"interactive"`
 	// Loaded is true when a file was found and validated.
 	Loaded bool `yaml:"-"`
@@ -79,13 +86,7 @@ func Path(root string) string { return filepath.Join(root, Dir, File) }
 // so newer shared configuration keeps working on older LazyAI versions.
 func Load(root string) (Config, []string, error) {
 	path := Path(root)
-	data, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) {
-		if err := createDefault(path); err != nil {
-			return Config{}, nil, fmt.Errorf("create %s: %w", path, err)
-		}
-		data, err = os.ReadFile(path)
-	}
+	data, err := loadBytes(path)
 	if err != nil {
 		return Config{}, nil, err
 	}
@@ -95,6 +96,41 @@ func Load(root string) (Config, []string, error) {
 		return cfg, warnings, fmt.Errorf("%s: %w", path, err)
 	}
 	return cfg, warnings, nil
+}
+
+// LoadAgent resolves launch settings independently of contract validation.
+// Invalid templates still open the TUI with its existing config-error display.
+func LoadAgent(root string) (Agent, error) {
+	path := Path(root)
+	data, err := loadBytes(path)
+	if err != nil {
+		return Agent{}, err
+	}
+	var launch struct {
+		Version int   `yaml:"version"`
+		Agent   Agent `yaml:"agent"`
+	}
+	if err := yaml.Unmarshal(data, &launch); err != nil {
+		return Agent{}, fmt.Errorf("%s: malformed yaml: %w", path, err)
+	}
+	if launch.Version != Version {
+		return Agent{}, fmt.Errorf("%s: unsupported version %d", path, launch.Version)
+	}
+	if err := validateAgent(&launch.Agent); err != nil {
+		return Agent{}, fmt.Errorf("%s: %w", path, err)
+	}
+	return launch.Agent, nil
+}
+
+func loadBytes(path string) ([]byte, error) {
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		if err := createDefault(path); err != nil {
+			return nil, fmt.Errorf("create %s: %w", path, err)
+		}
+		data, err = os.ReadFile(path)
+	}
+	return data, err
 }
 
 func createDefault(path string) error {
@@ -136,7 +172,7 @@ func Parse(data []byte) (Config, []string, error) {
 	if err := yaml.Unmarshal(data, &raw); err != nil {
 		return Config{}, nil, fmt.Errorf("malformed yaml: %w", err)
 	}
-	known := map[string]bool{"version": true, "interactive": true}
+	known := map[string]bool{"version": true, "interactive": true, "agent": true}
 	var warnings []string
 	var keys []string
 	for k := range raw {
@@ -160,6 +196,9 @@ func Parse(data []byte) (Config, []string, error) {
 }
 
 func validate(cfg *Config) error {
+	if err := validateAgent(&cfg.Agent); err != nil {
+		return err
+	}
 	if cfg.Version != Version {
 		return fmt.Errorf("unsupported version %d (want %d)", cfg.Version, Version)
 	}
@@ -203,6 +242,16 @@ func validate(cfg *Config) error {
 	}
 	if cfg.Interactive.Strict && len(cfg.Interactive.Contracts) == 0 {
 		return errors.New("strict mode requires at least one contract")
+	}
+	return nil
+}
+
+func validateAgent(agent *Agent) error {
+	if agent.Backend == "" {
+		agent.Backend = "opencode"
+	}
+	if agent.Backend != "opencode" && agent.Backend != "codex" {
+		return fmt.Errorf("unsupported agent backend %q (want opencode or codex)", agent.Backend)
 	}
 	return nil
 }

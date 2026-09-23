@@ -3,6 +3,8 @@
 package activity
 
 import (
+	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -112,20 +114,24 @@ func (l *Ledger) MarkRead(p string) bool {
 
 // Snapshot captures the file's current content as its baseline if no baseline
 // exists yet. Call it before the agent's first modification of the file.
-func (l *Ledger) Snapshot(p string) {
+func (l *Ledger) Snapshot(p string) error {
 	rel, abs, ok := l.Rel(p)
 	if !ok {
-		return
+		return fmt.Errorf("snapshot path is outside the workspace: %s", p)
 	}
 	if _, done := l.baseline[rel]; done {
-		return
+		return nil
 	}
 	data, err := os.ReadFile(abs)
 	if err != nil {
+		if !os.IsNotExist(err) {
+			return fmt.Errorf("snapshot %s: %w", p, err)
+		}
 		l.baseline[rel] = snapshot{existed: false}
-		return
+		return nil
 	}
 	l.baseline[rel] = snapshot{data: data, existed: true}
+	return nil
 }
 
 // MarkWritten records a modification and classifies it against the baseline.
@@ -140,6 +146,9 @@ func (l *Ledger) MarkWritten(p string) bool {
 	}
 	e := l.touch(abs, rel)
 	l.classify(e)
+	if e.State == 0 {
+		delete(l.entries, rel)
+	}
 	return true
 }
 
@@ -148,6 +157,14 @@ func (l *Ledger) classify(e *Entry) {
 	_, statErr := os.Stat(e.Abs)
 	exists := statErr == nil
 	e.State &^= Modified | Added | Deleted
+	if !base.existed && !exists {
+		return
+	}
+	if base.existed && exists && base.data != nil {
+		if data, err := os.ReadFile(e.Abs); err == nil && bytes.Equal(base.data, data) {
+			return
+		}
+	}
 	switch {
 	case !base.existed && exists:
 		e.State |= Added

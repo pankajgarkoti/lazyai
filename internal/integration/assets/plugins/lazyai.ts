@@ -18,6 +18,7 @@ async function send(event: Record<string, unknown>): Promise<Response> {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
     body: JSON.stringify(event),
+    signal: event.type === "file.snapshot" ? AbortSignal.timeout(3000) : undefined,
   })
   if (!res.ok) {
     throw new Error((await res.text().catch(() => "")) || `LazyAI rejected event (${res.status})`)
@@ -69,7 +70,10 @@ const LazyAIPlugin: Plugin = async (ctx) => {
       if (input.tool !== "edit" && input.tool !== "write") return
       const p = pathArg(output.args)
       if (!p) return
-      report({ type: "file.before", tool: input.tool, sessionID: input.sessionID, path: resolve(ctx.directory, p) })
+      // The host must finish capturing the baseline before the tool can mutate it.
+      await post({ type: "file.snapshot", tool: input.tool, sessionID: input.sessionID, path: resolve(ctx.directory, p) }).catch((err) => {
+        report({ type: "integration.error", title: `Pre-edit snapshot failed: ${String(err)}` })
+      })
     },
 
     "tool.execute.after": async (input, output) => {

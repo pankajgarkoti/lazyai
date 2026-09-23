@@ -78,6 +78,7 @@ func TestOrderingChangedFirstThenRecency(t *testing.T) {
 	l.MarkRead("a.go") // t=1
 	l.MarkRead("b.go") // t=2
 	l.Snapshot("c.go")
+	os.WriteFile(filepath.Join(root, "c.go"), []byte("changed"), 0o644)
 	l.MarkWritten("c.go") // t=3, changed
 	l.MarkRead("a.go")    // t=4, most recent read
 
@@ -101,5 +102,34 @@ func TestShownAttachesReasonWithoutClearingRead(t *testing.T) {
 	e, _ := l.Get("s.go")
 	if e.Reason != "entry point" || e.State&Read == 0 || e.Marker() != "S" {
 		t.Fatalf("entry=%+v marker=%s", e, e.Marker())
+	}
+}
+
+func TestFailedOrRevertedEditDoesNotBecomeAChange(t *testing.T) {
+	l, root := newTestLedger(t)
+	p := filepath.Join(root, "dirty.txt")
+	if err := os.WriteFile(p, []byte("dirty before agent"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.Snapshot(p); err != nil {
+		t.Fatal(err)
+	}
+	l.MarkWritten(p)
+	if l.Len() != 0 {
+		t.Fatal("failed/no-op edit appeared as a change")
+	}
+	if err := os.WriteFile(p, []byte("agent"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	l.MarkWritten(p)
+	if e, _ := l.Get("dirty.txt"); !e.Changed() {
+		t.Fatal("successful edit missing")
+	}
+	if err := os.WriteFile(p, []byte("dirty before agent"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	l.MarkWritten(p)
+	if l.Len() != 0 {
+		t.Fatal("reverted edit still appears as a change")
 	}
 }
