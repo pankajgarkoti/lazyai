@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 
@@ -94,6 +95,25 @@ func prepareRoot(opts launchOptions) (string, error) {
 	return absDir, nil
 }
 
+func openCodeArgs(base []string, sessionID string) []string {
+	if sessionID == "" {
+		return append([]string(nil), base...)
+	}
+	args := make([]string, 0, len(base)+2)
+	for i := 0; i < len(base); i++ {
+		arg := base[i]
+		if arg == "--session" || arg == "-s" {
+			i++
+			continue
+		}
+		if arg == "--continue" || arg == "-c" || arg == "--fork" || strings.HasPrefix(arg, "--session=") || strings.HasPrefix(arg, "-s=") || strings.HasPrefix(arg, "--continue=") || strings.HasPrefix(arg, "-c=") || strings.HasPrefix(arg, "--fork=") {
+			continue
+		}
+		args = append(args, arg)
+	}
+	return append(args, "--session", sessionID)
+}
+
 func runDirect(args []string) error {
 	opts, err := parseLaunchOptions(args)
 	if err != nil {
@@ -175,10 +195,14 @@ func runDirect(args []string) error {
 			c.Close()
 		}
 	}()
-	launch := func(dir string, w, h int) (*terminal.Terminal, string, error) {
+	launch := func(dir, sessionID string, w, h int) (*terminal.Terminal, string, error) {
 		token := hookSrv.Register()
 		roots.Store(token, dir)
-		args, env := backend.Launch(self, dir, hookSrv.URL, token, childArgs)
+		launchArgs := childArgs
+		if backend.Name == "opencode" {
+			launchArgs = openCodeArgs(childArgs, sessionID)
+		}
+		args, env := backend.Launch(self, dir, hookSrv.URL, token, launchArgs)
 		child, err := terminal.Start(terminal.Options{
 			Command: backend.Executable,
 			Args:    args,

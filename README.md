@@ -103,7 +103,7 @@ See [integration details and verification](docs/agent-backends.md).
 
 ## Versioning and release builds
 
-Current version: **0.5.0** (0.2: workstream identities, agent-driven
+Current version: **0.6.0** (0.2: workstream identities, agent-driven
 workstream setup, strict contract entry, accurate activity indicators; 0.2.1
 replaces the strip detail row with the `K` details float; 0.2.2 makes `j`/`k`
 browse workstreams in Normal and adds `Ctrl+Space` `q` to quit a session;
@@ -111,7 +111,8 @@ browse workstreams in Normal and adds `Ctrl+Space` `q` to quit a session;
 the `jk` chord with `Ctrl+]` for a real Escape, a keymap change; 0.4.0 creates
 editable project defaults with workflow contracts and separate drafts; 0.5.0
 adds the seven-workflow picker, rounded responsive forms, and direct handoff for
-agent questions and permissions).
+agent questions and permissions; 0.6.0 resumes a workstream's OpenCode
+conversation when the workstream is reopened).
 LazyAI uses Semantic Versioning (`MAJOR.MINOR.PATCH`). During `0.x`
 development, new features and breaking changes increment the minor version;
 compatible fixes increment the patch version. Version `1.0.0` will mark a stable

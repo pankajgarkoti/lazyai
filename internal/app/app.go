@@ -96,9 +96,9 @@ func tickCmd() tea.Cmd {
 	return tea.Tick(spinnerInterval, func(time.Time) tea.Msg { return TickMsg{} })
 }
 
-// Launcher starts an OpenCode child rooted at dir with the given screen size
-// and returns it together with the hook token that identifies its events.
-type Launcher func(dir string, w, h int) (*terminal.Terminal, string, error)
+// Launcher starts an OpenCode child rooted at dir with the given screen size.
+// sessionID selects a conversation when reopening a workstream.
+type Launcher func(dir, sessionID string, w, h int) (*terminal.Terminal, string, error)
 
 // ShellLauncher starts the user's shell in dir for the t (terminal) mode. The
 // token identifies the owning workstream in ChildExitedMsg{Shell: true}.
@@ -110,6 +110,7 @@ type NotesStore interface {
 	Record(root, branch, sessionID string, set show.Set) error
 	UpsertWorktree(repo, branch, path string, linked bool) error
 	SetWorktreeIdentity(repo, branch, nickname, description string) error
+	SetWorktreeSession(repo, branch, sessionID string) error
 	SetDormant(repo, branch string, dormant bool) error
 	Worktrees(repo string) ([]notes.Worktree, error)
 	SetState(repo, key, value string) error
@@ -145,6 +146,7 @@ type stream struct {
 	description string // optional reminder of what the workstream is for
 	root        string
 	token       string
+	sessionID   string
 	term        *terminal.Terminal
 	shell       *terminal.Terminal // t mode, started lazily
 	ledger      *activity.Ledger
@@ -534,6 +536,12 @@ func (m *Model) applyHook(ev hooks.Event) tea.Cmd {
 			ev.Reply <- hooks.Reply{Err: errUnknownWorkstream}
 		}
 		return nil
+	}
+	if ev.Type == "session" && ev.SessionID != "" && ev.SessionID != s.sessionID {
+		s.sessionID = ev.SessionID
+		if m.cfg.Notes != nil && s.repo.Main != "" {
+			_ = m.cfg.Notes.SetWorktreeSession(s.repo.Main, s.name, ev.SessionID)
+		}
 	}
 	// Operate on that stream as if it were current, then restore.
 	saved := m.stream

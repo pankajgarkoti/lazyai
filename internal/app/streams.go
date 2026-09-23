@@ -46,24 +46,25 @@ type WorkstreamResult struct {
 
 // addStream launches an OpenCode child in root and makes it current.
 func (m *Model) addStream(root, name string) (*stream, error) {
-	return m.addStreamOpts(root, name, "", "", true)
+	return m.addStreamOpts(root, name, "", "", "", true)
 }
 
 // addStreamOpts launches an OpenCode child in root. With activate it becomes
 // current and, unless strict entry intervenes, focused: a fresh workstream is
 // there to be typed into. Without activate it is appended in the background.
-func (m *Model) addStreamOpts(root, name, nickname, description string, activate bool) (*stream, error) {
+func (m *Model) addStreamOpts(root, name, nickname, description, sessionID string, activate bool) (*stream, error) {
 	w, h := m.rightInner()
 	if m.width == 0 { // size unknown until the first WindowSizeMsg
 		w, h = 80, 24
 	}
-	term, token, err := m.cfg.Launch(root, w, h)
+	term, token, err := m.cfg.Launch(root, sessionID, w, h)
 	if err != nil {
 		return nil, err
 	}
 	s := &stream{
 		root:       root,
 		token:      token,
+		sessionID:  sessionID,
 		term:       term,
 		ledger:     activity.New(root),
 		mode:       ModeInteractive,
@@ -430,8 +431,9 @@ func (m *Model) OpenWorkstream(spec hooks.WorkstreamSpec, activate bool) (Workst
 	}
 	nickname := strings.TrimSpace(spec.Nickname)
 	description := strings.TrimSpace(spec.Description)
+	stored, storedOK := m.storedIdentity(m.repo.Main, spec.Branch)
 	if nickname == "" || description == "" {
-		if stored, ok := m.storedIdentity(m.repo.Main, spec.Branch); ok {
+		if storedOK {
 			if nickname == "" {
 				nickname = stored.Nickname
 			}
@@ -467,7 +469,7 @@ func (m *Model) OpenWorkstream(spec hooks.WorkstreamSpec, activate bool) (Workst
 	if m.cfg.Notes != nil && m.repo.Main != "" {
 		_ = m.cfg.Notes.SetWorktreeIdentity(m.repo.Main, spec.Branch, nickname, description)
 	}
-	if _, err := m.addStreamOpts(path, spec.Branch, nickname, description, activate); err != nil {
+	if _, err := m.addStreamOpts(path, spec.Branch, nickname, description, stored.SessionID, activate); err != nil {
 		return fail(fmt.Errorf("worktree ready at %s but %s failed to start: %w", path, m.backend(), err))
 	}
 	res.Launched = true
