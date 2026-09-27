@@ -2,7 +2,7 @@
 
 ## Contract
 
-One project session selects `agent.backend: opencode | codex` from the canonical
+One project session selects `agent.backend: opencode | opencode2 | codex` from the canonical
 main checkout's `.lazyai/config.yaml`. Every child uses the same frozen backend;
 configuration reload cannot create a mixed project. Backend/executable changes
 require an explicit session stop and relaunch. OpenCode remains the default.
@@ -26,7 +26,10 @@ configuration and history. Files and worktree identities are shared project stat
    new launch configuration. New sessions validate configuration and executable
    availability before creating a worktree or supervisor.
 2. `internal/agent` prepares the selected backend. OpenCode receives the existing
-   additive `OPENCODE_CONFIG_DIR`; Codex receives `-c` session-layer hooks and the
+   additive `OPENCODE_CONFIG_DIR`; OpenCode 2 receives a separate V2 plugin
+   directory and runs `--standalone` so the server inherits each workstream's
+   integration token. Its cached `@opencode/plugin` dependency is installed by
+   npm on first launch. Codex receives `-c` session-layer hooks and the
    `lazyai` MCP server. Existing user/project hooks load alongside these hooks.
 3. Each workstream has its own hook token. `internal/hooks` authenticates incoming
    events and stamps their workstream identity. Closed children lose their token.
@@ -68,7 +71,10 @@ invalidate Codex's native hook-trust hashes.
   saved conversation; Codex uses `codex resume <id>`. Explicit native `resume`
   or `fork` passthrough commands override automatic Codex selection.
   Live diff baselines/drafts have the same
-  detach-versus-stop lifetime as before.
+   detach-versus-stop lifetime as before.
+- Schema v4 stores an independent OpenCode 2 conversation ID and Show records
+  use the `opencode2:` prefix. V2's plugin implements its separate hook/tool
+  API and retains the same host-side snapshot acknowledgment and Show validation.
 - Use native local Codex; remote app-server and Codex-managed worktree launch
   options can change execution/environment roots and are not supported by this
   worktree-scoped adapter.
@@ -79,6 +85,7 @@ invalidate Codex's native hook-trust hashes.
 go vet ./...
 go test -race ./...
 go build -o bin/lazyai ./cmd/lazyai
+OPENCODE2_TEST_BINARY=/path/to/opencode2 go test ./internal/integration -run TestOpenCode2NativePluginLoads -count=1
 python3 scripts/test-codex-bridge.py
 python3 scripts/test-sessions-tmux.py --real-opencode --real-codex
 ```

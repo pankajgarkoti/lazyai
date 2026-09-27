@@ -258,8 +258,8 @@ func validateAgent(agent *Agent) error {
 	if agent.Backend == "" {
 		agent.Backend = "opencode"
 	}
-	if agent.Backend != "opencode" && agent.Backend != "codex" {
-		return fmt.Errorf("unsupported agent backend %q (want opencode or codex)", agent.Backend)
+	if agent.Backend != "opencode" && agent.Backend != "opencode2" && agent.Backend != "codex" {
+		return fmt.Errorf("unsupported agent backend %q (want opencode, opencode2 or codex)", agent.Backend)
 	}
 	return nil
 }

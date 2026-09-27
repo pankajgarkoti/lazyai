@@ -1,6 +1,6 @@
 # lazyai
 
-A lazygit-style, Vim-modal terminal UI around **OpenCode or Codex CLI**.
+A lazygit-style, Vim-modal terminal UI around **OpenCode, OpenCode 2, or Codex CLI**.
 
 The selected agent runs unchanged, as a real terminal process inside the right pane. LazyAI
 adds a sidebar of the files the agent reads and changes, a diff viewer for the
@@ -33,6 +33,7 @@ GitHub releases page.
 
 ```sh
 lazyai --dir /path/to/project [-- agent args...]
+lazyai --dir /path/to/project --agent opencode2  # choose for this new session
 ```
 
 Or from source:
@@ -42,7 +43,8 @@ go build -o bin/lazyai ./cmd/lazyai
 ./bin/lazyai --dir /path/to/project [-- agent args...]
 ```
 
-By default, requires `opencode` on `PATH` (tested with 1.18.x). Your existing OpenCode
+By default, requires `opencode` on `PATH` (tested with 1.18.x). OpenCode 2 is
+available as `opencode2` when selected in project setup. Your existing OpenCode
 configuration, providers, sessions, skills and plugins all apply; LazyAI only
 adds one extra config directory (`OPENCODE_CONFIG_DIR`) containing its plugin
 and skill, materialized under your user cache dir.
@@ -54,8 +56,8 @@ setup questions before starting the agent. Existing configurations are reused.
 
 The setup asks for:
 
-1. **Coding agent:** OpenCode or Codex. OpenCode is the default when installed;
-   Codex is suggested when it is the only one available.
+1. **Coding agent:** OpenCode, OpenCode 2, or Codex. OpenCode is the default when installed;
+   OpenCode 2 or Codex is suggested when it is the first available alternative.
 2. **Executable:** an optional custom path; blank uses the agent on `PATH`.
 3. **Strict mode:** whether entering the agent opens a structured task form
    instead of accepting free-form instructions. Default: off.
@@ -74,14 +76,14 @@ including malformed configurations. Reattaching to a running session skips setup
 Model/provider settings remain in the selected agent's native configuration.
 See [Configuration](#configuration) for changes after setup.
 
-## Choosing OpenCode or Codex
+## Choosing an agent
 
 Set the agent **once per project**, in the main checkout's `.lazyai/config.yaml`:
 
 ```yaml
 version: 1
 agent:
-  backend: codex # opencode | codex; omitted means opencode
+  backend: opencode2 # opencode | opencode2 | codex; omitted means opencode
   # executable: /absolute/path/to/codex # optional; defaults to backend on PATH
 interactive:
   strict: false
@@ -100,8 +102,25 @@ required** for agent changes. Detach/reattach keeps the running agent and its
 screen, even if the file has changed. A full stop retains worktree identities and
 saved Show records, but not live screens, in-memory diff baselines or drafts.
 Native chat histories remain with their respective agents. Reopened workstreams
-resume the saved conversation for the selected backend; OpenCode and Codex IDs
-are stored separately so switching back preserves the previous conversation.
+resume the saved conversation for the selected backend; OpenCode 1, OpenCode 2,
+and Codex IDs are stored separately so switching back preserves the previous conversation.
+
+For a **new** session, `--agent opencode|opencode2|codex` overrides the project's
+default without changing `.lazyai/config.yaml`. All workstreams in that
+session use the chosen agent; reattaching an existing session ignores new
+launch options. Stop that session before choosing another agent. If the project
+configures a custom executable for its default backend, it applies only when
+that same backend is chosen; other choices use their name on `PATH`.
+
+**OpenCode 2 setup:** Install the beta `opencode2` executable
+(`npm install -g @opencode-ai/cli@beta`), then choose
+`agent.backend: opencode2`. LazyAI runs a private OpenCode 2 server per
+workstream so its plugin events and credentials reach the right workstream.
+It installs the V2 plugin API into its version-specific user cache on first
+launch (requires `npm`); your project files are not modified. OpenCode 1 and 2
+use different plugin APIs, so LazyAI ships separate plugins and saves their
+conversation IDs separately. OpenCode 2 is a preview and has been exercised
+against `opencode2 v0.0.0-beta-19271` with `@opencode/plugin@0.0.0-beta-19507`.
 
 **Codex setup:** LazyAI adds invocation-scoped lifecycle hooks and a `lazyai`
 stdio MCP server. Your Codex auth, model, sandbox, skills, and other configuration
@@ -129,7 +148,7 @@ See [integration details and verification](docs/agent-backends.md).
 
 ## Versioning and release builds
 
-Current version: **0.7.0** (0.2: workstream identities, agent-driven
+Current version: **0.8.0** (0.2: workstream identities, agent-driven
 workstream setup, strict contract entry, accurate activity indicators; 0.2.1
 replaces the strip detail row with the `K` details float; 0.2.2 makes `j`/`k`
 browse workstreams in Normal and adds `Ctrl+Space` `q` to quit a session;
@@ -139,7 +158,8 @@ editable project defaults with workflow contracts and separate drafts; 0.5.0
 adds the seven-workflow picker, rounded responsive forms, and direct handoff for
 agent questions and permissions; 0.6.0 resumes a workstream's OpenCode
 conversation when the workstream is reopened; 0.7.0 adds per-project Codex/OpenCode
-selection, first-run setup, and backend-specific conversation resume).
+selection, first-run setup, and backend-specific conversation resume; 0.8.0
+adds OpenCode 2 integration and per-new-session agent selection).
 LazyAI uses Semantic Versioning (`MAJOR.MINOR.PATCH`). During `0.x`
 development, new features and breaking changes increment the minor version;
 compatible fixes increment the patch version. Version `1.0.0` will mark a stable
@@ -461,7 +481,7 @@ You can rename the template and add or remove fields to fit your workflow:
 | Setting | What it does |
 |---|---|
 | `version` | Required; currently `1` |
-| `agent.backend` | `opencode` (default) or `codex`; applies to all workstreams on the next project-session start |
+| `agent.backend` | `opencode` (default), `opencode2`, or `codex`; applies to all workstreams on the next project-session start |
 | `agent.executable` | Optional executable path/name for the selected backend; changes require a session restart |
 | `interactive.strict` | Defaults to `false`; `true` enables the form and requires at least one contract |
 | `interactive.default_contract` | Initially highlighted contract; must exist in `contracts` if set. If omitted, LazyAI highlights the first name alphabetically |

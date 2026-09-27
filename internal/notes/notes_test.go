@@ -65,6 +65,9 @@ func TestAgentConversationsStaySeparateAcrossReopen(t *testing.T) {
 	if err := db.SetWorktreeCodexSession("/repo", "feature", "codex-session"); err != nil {
 		t.Fatal(err)
 	}
+	if err := db.SetWorktreeOpenCode2Session("/repo", "feature", "opencode2-session"); err != nil {
+		t.Fatal(err)
+	}
 	db.Close()
 	db, err = Open(path)
 	if err != nil {
@@ -72,7 +75,7 @@ func TestAgentConversationsStaySeparateAcrossReopen(t *testing.T) {
 	}
 	defer db.Close()
 	rows, err := db.Worktrees("/repo")
-	if err != nil || len(rows) != 1 || rows[0].SessionID != "opencode-session" || rows[0].CodexSessionID != "codex-session" {
+	if err != nil || len(rows) != 1 || rows[0].SessionID != "opencode-session" || rows[0].CodexSessionID != "codex-session" || rows[0].OpenCode2SessionID != "opencode2-session" {
 		t.Fatalf("rows=%+v err=%v", rows, err)
 	}
 }

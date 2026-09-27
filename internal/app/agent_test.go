@@ -52,6 +52,26 @@ func TestProjectBackendReloadRequiresRestart(t *testing.T) {
 	}
 }
 
+func TestSessionAgentChoiceDoesNotReportConfigChanged(t *testing.T) {
+	h := newHarness(t)
+	h.m.cfg.Backend = "opencode2"
+	h.m.cfg.ConfiguredAgent = config.Agent{Backend: "opencode"}
+	h.m.cfg.LoadConfig = func() (config.Config, []string, error) {
+		return config.Parse([]byte("version: 1\nagent:\n  backend: opencode\n"))
+	}
+	h.m.reloadConfig()
+	if h.m.backendPending {
+		t.Fatal("a session-only agent choice was reported as a config change")
+	}
+	h.m.cfg.LoadConfig = func() (config.Config, []string, error) {
+		return config.Parse([]byte("version: 1\nagent:\n  backend: codex\n"))
+	}
+	h.m.reloadConfig()
+	if !h.m.backendPending {
+		t.Fatal("editing the project default did not require a restart")
+	}
+}
+
 func TestCodexAttentionSurvivesUnrelatedConcurrentCalls(t *testing.T) {
 	h := newHarness(t)
 	h.m.cfg.Backend = "codex"
@@ -95,6 +115,16 @@ func TestWorkstreamReopensOnlySelectedBackendConversation(t *testing.T) {
 	h.hook(hooks.Event{Type: "session", SessionID: "opencode-session"})
 	h.update(EscapeMsg{})
 	h.key("a")
+	h.m.cfg.Backend = "opencode2"
+	if _, err := h.m.OpenWorkstream(hooks.WorkstreamSpec{Branch: "feature"}, true); err != nil {
+		t.Fatal(err)
+	}
+	if got := h.sessions[len(h.sessions)-1]; got != "" {
+		t.Fatalf("OpenCode 2 received V1 session: %s", got)
+	}
+	h.hook(hooks.Event{Type: "session", SessionID: "v2-session"})
+	h.update(EscapeMsg{})
+	h.key("a")
 	h.m.cfg.Backend = "codex"
 	if _, err := h.m.OpenWorkstream(hooks.WorkstreamSpec{Branch: "feature"}, true); err != nil {
 		t.Fatal(err)
@@ -110,6 +140,15 @@ func TestWorkstreamReopensOnlySelectedBackendConversation(t *testing.T) {
 	}
 	if got := h.sessions[len(h.sessions)-1]; got != "codex-session" {
 		t.Fatalf("Codex session lost: %s", got)
+	}
+	h.update(EscapeMsg{})
+	h.key("a")
+	h.m.cfg.Backend = "opencode2"
+	if _, err := h.m.OpenWorkstream(hooks.WorkstreamSpec{Branch: "feature"}, true); err != nil {
+		t.Fatal(err)
+	}
+	if got := h.sessions[len(h.sessions)-1]; got != "v2-session" {
+		t.Fatalf("OpenCode 2 session lost: %s", got)
 	}
 	h.update(EscapeMsg{})
 	h.key("a")

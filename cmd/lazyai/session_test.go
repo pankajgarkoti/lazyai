@@ -14,9 +14,38 @@ import (
 	"testing"
 	"time"
 
+	"lazyai/internal/config"
 	"lazyai/internal/notes"
 	"lazyai/internal/supervisor"
 )
+
+func TestAgentChoiceForNewSession(t *testing.T) {
+	for _, tc := range []struct {
+		name, selected, wantBackend, wantExecutable string
+	}{
+		{"project default", "", "codex", "/custom/codex"},
+		{"same agent retains executable", "codex", "codex", "/custom/codex"},
+		{"switch to OpenCode 2", "opencode2", "opencode2", ""},
+		{"switch to OpenCode 1", "opencode", "opencode", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := agentForLaunch(config.Agent{Backend: "codex", Executable: "/custom/codex"}, tc.selected)
+			if err != nil || got.Backend != tc.wantBackend || got.Executable != tc.wantExecutable {
+				t.Fatalf("agent=%+v err=%v", got, err)
+			}
+		})
+	}
+	if _, err := agentForLaunch(config.Agent{Backend: "opencode"}, "unknown"); err == nil {
+		t.Fatal("accepted unknown session backend")
+	}
+}
+
+func TestAgentChoiceIsParsedForNewSession(t *testing.T) {
+	opts, err := parseLaunchOptions([]string{"--dir", "/repo", "--agent", "opencode2", "--", "--session", "ses_native"})
+	if err != nil || opts.agent != "opencode2" || len(opts.child) != 2 || opts.child[0] != "--session" {
+		t.Fatalf("options=%+v err=%v", opts, err)
+	}
+}
 
 func TestOpenCodeArgsUseWorkstreamSessionOnResume(t *testing.T) {
 	tests := []struct {
