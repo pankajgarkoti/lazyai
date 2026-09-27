@@ -112,6 +112,7 @@ type NotesStore interface {
 	SetWorktreeIdentity(repo, branch, nickname, description string) error
 	SetWorktreeSession(repo, branch, sessionID string) error
 	SetWorktreeCodexSession(repo, branch, sessionID string) error
+	SetWorktreeOpenCode2Session(repo, branch, sessionID string) error
 	SetDormant(repo, branch string, dormant bool) error
 	Worktrees(repo string) ([]notes.Worktree, error)
 	SetState(repo, key, value string) error
@@ -123,8 +124,9 @@ type ConfigLoader func() (config.Config, []string, error)
 
 // Config wires the model to the process.
 type Config struct {
-	AgentExecutable string // project setting, before PATH resolution/CLI override
-	Backend         string // frozen for the lifetime of this project session
+	AgentExecutable string       // project setting, before PATH resolution/CLI override
+	Backend         string       // frozen for the lifetime of this project session
+	ConfiguredAgent config.Agent // initial project default; may differ from a session-only --agent choice
 	Root            string
 	Width, Height   int // initial terminal size (0 = unknown yet)
 	Launch          Launcher
@@ -279,7 +281,11 @@ func (m *Model) reloadConfig() {
 		return
 	}
 	m.project = cfg
-	m.backendPending = cfg.Agent.Backend != m.backend() || cfg.Agent.Executable != m.cfg.AgentExecutable
+	initial := m.cfg.ConfiguredAgent
+	if initial.Backend == "" {
+		initial = config.Agent{Backend: m.backend(), Executable: m.cfg.AgentExecutable}
+	}
+	m.backendPending = cfg.Agent != initial
 	if len(warnings) > 0 {
 		m.configWarn = strings.Join(warnings, "; ")
 	}
@@ -542,6 +548,8 @@ func (m *Model) applyHook(ev hooks.Event) tea.Cmd {
 		if m.cfg.Notes != nil && s.repo.Main != "" {
 			if m.backend() == "codex" {
 				_ = m.cfg.Notes.SetWorktreeCodexSession(s.repo.Main, s.name, ev.SessionID)
+			} else if m.backend() == "opencode2" {
+				_ = m.cfg.Notes.SetWorktreeOpenCode2Session(s.repo.Main, s.name, ev.SessionID)
 			} else {
 				_ = m.cfg.Notes.SetWorktreeSession(s.repo.Main, s.name, ev.SessionID)
 			}
@@ -652,6 +660,8 @@ func (m *Model) applyHook(ev hooks.Event) tea.Cmd {
 			}
 			if m.backend() == "codex" {
 				sessionID = "codex:" + sessionID
+			} else if m.backend() == "opencode2" {
+				sessionID = "opencode2:" + sessionID
 			}
 			if err := m.cfg.Notes.Record(s.root, s.repo.Branch, sessionID, set); err != nil && isCur {
 				m.notice = "notes: " + err.Error()

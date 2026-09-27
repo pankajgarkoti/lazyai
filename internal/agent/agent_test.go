@@ -8,7 +8,7 @@ import (
 )
 
 func TestBackendLaunchIsolation(t *testing.T) {
-	for _, name := range []string{"opencode", "codex"} {
+	for _, name := range []string{"opencode", "opencode2", "codex"} {
 		b := Backend{Name: name, configDir: "/cache/opencode"}
 		args, env := b.Launch("/bin/lazy ai", "/worktree", "http://127.0.0.1:1234", "secret", []string{"--model", "example"})
 		joined := strings.Join(args, " ") + strings.Join(env, " ")
@@ -20,6 +20,11 @@ func TestBackendLaunchIsolation(t *testing.T) {
 				if !strings.Contains(joined, want) {
 					t.Fatalf("missing %s", want)
 				}
+			}
+		}
+		if name == "opencode2" {
+			if !strings.Contains(joined, "--standalone") || !strings.Contains(joined, "OPENCODE_CONFIG_DIR=/cache/opencode") || strings.Contains(joined, "hooks.SessionStart=") {
+				t.Fatalf("OpenCode 2 must have a private integration server: %s", joined)
 			}
 		}
 		if args[len(args)-2] != "--model" || args[len(args)-1] != "example" {

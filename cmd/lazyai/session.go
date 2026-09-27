@@ -25,6 +25,20 @@ import (
 	"lazyai/internal/supervisor"
 )
 
+// An explicit session choice uses the selected backend's normal executable,
+// unless it matches the project default (which may have a custom executable).
+func agentForLaunch(project config.Agent, selected string) (config.Agent, error) {
+	if selected == "" || selected == project.Backend {
+		return project, nil
+	}
+	switch selected {
+	case "opencode", "opencode2", "codex":
+		return config.Agent{Backend: selected}, nil
+	default:
+		return config.Agent{}, fmt.Errorf("unknown session agent %q (choose opencode, opencode2, or codex)", selected)
+	}
+}
+
 func run(args []string) error {
 	if len(args) > 0 {
 		switch args[0] {
@@ -58,6 +72,12 @@ func attachSession(args []string) error {
 	if err != nil {
 		return err
 	}
+	if _, err := agentForLaunch(config.Agent{Backend: "opencode"}, opts.agent); err != nil {
+		return err
+	}
+	if opts.bin != "" && opts.agent != "" && opts.agent != "opencode" {
+		return fmt.Errorf("--opencode cannot override a %s session; use an installed %s executable", opts.agent, opts.agent)
+	}
 	if !term.IsTerminal(int(os.Stdin.Fd())) || !term.IsTerminal(int(os.Stdout.Fd())) {
 		return fmt.Errorf("lazyai must run in an interactive terminal")
 	}
@@ -78,8 +98,13 @@ func attachSession(args []string) error {
 	conn, err := net.Dial("unix", socket)
 	if err != nil {
 		defaultAgent := "opencode"
-		if _, openErr := exec.LookPath("opencode"); openErr != nil && opts.bin == "" {
-			if _, codexErr := exec.LookPath("codex"); codexErr == nil {
+		if opts.agent != "" {
+			defaultAgent = opts.agent
+		}
+		if _, openErr := exec.LookPath("opencode"); openErr != nil && opts.bin == "" && opts.agent == "" {
+			if _, v2Err := exec.LookPath("opencode2"); v2Err == nil {
+				defaultAgent = "opencode2"
+			} else if _, codexErr := exec.LookPath("codex"); codexErr == nil {
 				defaultAgent = "codex"
 			}
 		}
@@ -87,7 +112,7 @@ func attachSession(args []string) error {
 			DefaultAgent: defaultAgent, Executable: opts.bin,
 			Validate: func(a config.Agent) error {
 				if opts.bin != "" && a.Backend != "opencode" {
-					return fmt.Errorf("--opencode selects OpenCode; restart without that flag to choose Codex")
+					return fmt.Errorf("--opencode selects OpenCode; restart without that flag to choose another agent")
 				}
 				// Validate the executable being saved, not a different CLI override.
 				_, err := agent.Prepare(a, "")
@@ -103,6 +128,10 @@ func attachSession(args []string) error {
 		// Fail in the attached client, before creating worktrees or a supervisor.
 		// Existing sessions are reattached without reinterpreting launch config.
 		cfg, configErr := config.LoadAgent(project)
+		if configErr != nil {
+			return configErr
+		}
+		cfg, configErr = agentForLaunch(cfg, opts.agent)
 		if configErr != nil {
 			return configErr
 		}
@@ -194,6 +223,9 @@ func startSupervisor(project, root, socket, dbPath string, opts launchOptions, o
 		return err
 	}
 	directArgs := []string{"--dir", root}
+	if opts.agent != "" {
+		directArgs = append(directArgs, "--agent", opts.agent)
+	}
 	if opts.bin != "" {
 		directArgs = append(directArgs, "--opencode", opts.bin)
 	}

@@ -15,7 +15,7 @@ func TestFirstRunCollectsAndPersistsProjectChoices(t *testing.T) {
 	root := t.TempDir()
 	var output bytes.Buffer
 	var selected config.Agent
-	err := Run(root, strings.NewReader("2\n/custom/codex\nyes\nimplementation\ny\n"), &output, Options{Validate: func(a config.Agent) error { selected = a; return nil }})
+	err := Run(root, strings.NewReader("3\n/custom/codex\nyes\nimplementation\ny\n"), &output, Options{Validate: func(a config.Agent) error { selected = a; return nil }})
 	if err != nil {
 		t.Fatal(err)
 	}

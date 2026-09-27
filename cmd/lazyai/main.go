@@ -40,6 +40,7 @@ func main() {
 
 type launchOptions struct {
 	dir      string
+	agent    string
 	bin      string
 	worktree string
 	base     string
@@ -51,6 +52,7 @@ func parseLaunchOptions(args []string) (launchOptions, error) {
 	fs := flag.NewFlagSet("lazyai", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	fs.StringVar(&opts.dir, "dir", ".", "project directory to open the configured agent in")
+	fs.StringVar(&opts.agent, "agent", "", "agent for a new project session: opencode, opencode2, or codex (overrides project default for this session)")
 	fs.StringVar(&opts.bin, "opencode", "", "override OpenCode executable (OpenCode projects only)")
 	fs.StringVar(&opts.worktree, "worktree", "", "run in a git worktree for this branch under <repo>/"+git.WorktreeDir+" (created if needed)")
 	fs.StringVar(&opts.base, "base", "", "start point for a new --worktree branch (default: HEAD)")
@@ -152,6 +154,11 @@ func runDirect(args []string) error {
 	if err != nil {
 		return err
 	}
+	configuredAgent := agentConfig
+	agentConfig, err = agentForLaunch(agentConfig, opts.agent)
+	if err != nil {
+		return err
+	}
 	backend, err := agent.Prepare(agentConfig, opts.bin)
 	if err != nil {
 		return err
@@ -199,7 +206,7 @@ func runDirect(args []string) error {
 		token := hookSrv.Register()
 		roots.Store(token, dir)
 		launchArgs := childArgs
-		if backend.Name == "opencode" {
+		if backend.Name == "opencode" || backend.Name == "opencode2" {
 			launchArgs = openCodeArgs(childArgs, sessionID)
 		} else {
 			launchArgs = codexArgs(childArgs, sessionID)
@@ -283,6 +290,7 @@ func runDirect(args []string) error {
 	model, err := app.New(app.Config{
 		AgentExecutable: agentConfig.Executable,
 		Backend:         backend.Name,
+		ConfiguredAgent: configuredAgent,
 		Root:            absDir,
 		Width:           cols,
 		Height:          rows,
