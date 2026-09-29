@@ -174,6 +174,53 @@ func TestLeaderCapturesNextKeyForHostAndChildIsSwitchable(t *testing.T) {
 	}
 }
 
+func TestLeaderInBatchedTerminalInputCapturesOnlyNextKey(t *testing.T) {
+	for _, tc := range []struct {
+		name, input, host, child string
+		leaders                  int
+	}{
+		{"chord", "\x00q", "q", "", 1},
+		{"surrounding text", "a\x002b", "2", "ab", 1},
+		{"two chords", "\x00q\x00l!", "ql", "!", 2},
+		{"repeated leader", "\x00\x00x", "\x00", "x", 1},
+		{"arrow key", "\x00\x1b[Ax", "\x1b[A", "x", 1},
+		{"unicode key", "\x00éx", "é", "x", 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			child, host := &sink{}, &sink{}
+			r := New(&chunkReader{chunks: []string{tc.input}}, child, host)
+			leaders := 0
+			r.OnLeader = func() { leaders++ }
+			if err := r.Run(); err != io.EOF {
+				t.Fatalf("Run: %v", err)
+			}
+			if got := host.String(); got != tc.host {
+				t.Errorf("host = %q, want %q", got, tc.host)
+			}
+			if got := child.String(); got != tc.child {
+				t.Errorf("child = %q, want %q", got, tc.child)
+			}
+			if leaders != tc.leaders {
+				t.Errorf("leaders = %d, want %d", leaders, tc.leaders)
+			}
+		})
+	}
+}
+
+func TestOtherHostControlsInBatchedInputKeepTheirSideEffects(t *testing.T) {
+	child, host := &sink{}, &sink{}
+	r := New(&chunkReader{chunks: []string{"a\x1d\x1az\x11n"}}, child, host)
+	zooms, quits := 0, 0
+	r.OnZoom = func() { zooms++ }
+	r.OnQuit = func() { quits++ }
+	if err := r.Run(); err != io.EOF {
+		t.Fatalf("Run: %v", err)
+	}
+	if child.String() != "a\x1bz" || host.String() != "n" || zooms != 1 || quits != 1 || r.Forwarding() {
+		t.Fatalf("child=%q host=%q zooms=%d quits=%d forwarding=%v", child.String(), host.String(), zooms, quits, r.Forwarding())
+	}
+}
+
 func TestPastedControlSequencesDoNotTriggerHostCommands(t *testing.T) {
 	child, host := &sink{}, &sink{}
 	r := New(nil, child, host)

@@ -15,6 +15,7 @@ import (
 	"os"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 )
 
 // escapeByte is Ctrl+]: the one key that sends a literal ESC into the pane
@@ -111,6 +112,26 @@ func (r *Router) route(b []byte) {
 		}
 		return
 	}
+	// A terminal read (or a supervisor write) can contain several keystrokes.
+	// Split host controls out before deciding where the rest of the read goes.
+	if r.forward.Load() {
+		if r.captureNext.Load() {
+			if n := nextKeyLength(b); n < len(b) {
+				r.route(b[:n])
+				r.route(b[n:])
+				return
+			}
+		} else if i := bytes.IndexAny(b, "\x00\x1a\x11\x1d"); i >= 0 && (i > 0 || len(b) > 1) {
+			if i > 0 {
+				r.route(b[:i])
+				r.route(b[i:])
+			} else {
+				r.route(b[:1])
+				r.route(b[1:])
+			}
+			return
+		}
+	}
 	if len(b) == 1 && b[0] == 0x1a && !r.forward.Load() && r.OnZoom != nil {
 		r.OnZoom()
 		return
@@ -162,6 +183,28 @@ func (r *Router) route(b []byte) {
 	default:
 		_, _ = r.childSink().Write(b)
 	}
+}
+
+// nextKeyLength keeps the leader's captured key intact while leaving any
+// subsequent keys in the same read available for normal routing.
+func nextKeyLength(b []byte) int {
+	if len(b) == 0 {
+		return 0
+	}
+	if b[0] == 0x1b && len(b) > 1 {
+		if b[1] == '[' || b[1] == 'O' {
+			for i := 2; i < len(b); i++ {
+				if b[i] >= 0x40 && b[i] <= 0x7e {
+					return i + 1
+				}
+			}
+			return len(b)
+		}
+		_, n := utf8.DecodeRune(b[1:]) // Alt+key
+		return 1 + n
+	}
+	_, n := utf8.DecodeRune(b)
+	return n
 }
 
 func mouseSequenceBounds(b []byte) (start, end int) {
