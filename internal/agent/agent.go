@@ -24,7 +24,7 @@ func Prepare(cfg config.Agent, opencodeOverride string) (Backend, error) {
 	if cfg.Backend == "" {
 		cfg.Backend = "opencode"
 	}
-	if cfg.Backend != "opencode" && cfg.Backend != "opencode2" && cfg.Backend != "codex" {
+	if cfg.Backend != "opencode" && cfg.Backend != "codex" {
 		return Backend{}, fmt.Errorf("unknown agent %q", cfg.Backend)
 	}
 	bin := cfg.Executable
@@ -59,7 +59,7 @@ func Prepare(cfg config.Agent, opencodeOverride string) (Backend, error) {
 			return Backend{}, fmt.Errorf("Codex 0.155.1 or newer is required for LazyAI hooks (found %q)", strings.TrimSpace(string(out)))
 		}
 	}
-	if b.Name == "opencode" || b.Name == "opencode2" {
+	if b.Name == "opencode" {
 		dir, err := integration.DefaultDirFor(b.Name)
 		if err != nil {
 			return Backend{}, err
@@ -68,10 +68,8 @@ func Prepare(cfg config.Agent, opencodeOverride string) (Backend, error) {
 		if err != nil {
 			return Backend{}, err
 		}
-		if b.Name == "opencode2" {
-			if err := integration.EnsureV2PluginAPI(b.configDir); err != nil {
-				return Backend{}, err
-			}
+		if err := integration.EnsureV2PluginAPI(b.configDir); err != nil {
+			return Backend{}, err
 		}
 	}
 	return b, nil
@@ -81,9 +79,6 @@ func Prepare(cfg config.Agent, opencodeOverride string) (Backend, error) {
 func (b Backend) Launch(lazyai, root, url, token string, extra []string) (args, env []string) {
 	env = []string{"LAZYAI=1", "LAZYAI_WORKTREE=" + root, "LAZYAI_HOOK_URL=" + url, "LAZYAI_HOOK_TOKEN=" + token}
 	if b.Name == "opencode" {
-		return append([]string{}, extra...), append(env, "OPENCODE_CONFIG_DIR="+b.configDir)
-	}
-	if b.Name == "opencode2" {
 		// V2's server owns plugins and tool execution. Keep it in this workstream's
 		// process so its integration token is never sent to a shared user service.
 		return append([]string{"--standalone"}, extra...), append(env, "OPENCODE_CONFIG_DIR="+b.configDir)

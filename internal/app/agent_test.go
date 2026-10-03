@@ -54,7 +54,7 @@ func TestProjectBackendReloadRequiresRestart(t *testing.T) {
 
 func TestSessionAgentChoiceDoesNotReportConfigChanged(t *testing.T) {
 	h := newHarness(t)
-	h.m.cfg.Backend = "opencode2"
+	h.m.cfg.Backend = "codex"
 	h.m.cfg.ConfiguredAgent = config.Agent{Backend: "opencode"}
 	h.m.cfg.LoadConfig = func() (config.Config, []string, error) {
 		return config.Parse([]byte("version: 1\nagent:\n  backend: opencode\n"))
@@ -112,10 +112,12 @@ func TestWorkstreamReopensOnlySelectedBackendConversation(t *testing.T) {
 	if _, err := h.m.OpenWorkstream(hooks.WorkstreamSpec{Branch: "feature", Nickname: "Feature"}, true); err != nil {
 		t.Fatal(err)
 	}
-	h.hook(hooks.Event{Type: "session", SessionID: "opencode-session"})
+	if err := store.SetWorktreeSession(h.m.repo.Main, "feature", "legacy-v1-session"); err != nil {
+		t.Fatal(err)
+	}
 	h.update(EscapeMsg{})
 	h.key("a")
-	h.m.cfg.Backend = "opencode2"
+	h.m.cfg.Backend = "opencode"
 	if _, err := h.m.OpenWorkstream(hooks.WorkstreamSpec{Branch: "feature"}, true); err != nil {
 		t.Fatal(err)
 	}
@@ -143,7 +145,7 @@ func TestWorkstreamReopensOnlySelectedBackendConversation(t *testing.T) {
 	}
 	h.update(EscapeMsg{})
 	h.key("a")
-	h.m.cfg.Backend = "opencode2"
+	h.m.cfg.Backend = "opencode"
 	if _, err := h.m.OpenWorkstream(hooks.WorkstreamSpec{Branch: "feature"}, true); err != nil {
 		t.Fatal(err)
 	}
@@ -156,7 +158,7 @@ func TestWorkstreamReopensOnlySelectedBackendConversation(t *testing.T) {
 	if _, err := h.m.OpenWorkstream(hooks.WorkstreamSpec{Branch: "feature"}, true); err != nil {
 		t.Fatal(err)
 	}
-	if got := h.sessions[len(h.sessions)-1]; got != "opencode-session" {
+	if got := h.sessions[len(h.sessions)-1]; got != "v2-session" {
 		t.Fatalf("OpenCode session lost: %s", got)
 	}
 }

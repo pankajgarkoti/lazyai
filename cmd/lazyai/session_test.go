@@ -25,8 +25,7 @@ func TestAgentChoiceForNewSession(t *testing.T) {
 	}{
 		{"project default", "", "codex", "/custom/codex"},
 		{"same agent retains executable", "codex", "codex", "/custom/codex"},
-		{"switch to OpenCode 2", "opencode2", "opencode2", ""},
-		{"switch to OpenCode 1", "opencode", "opencode", ""},
+		{"switch to OpenCode", "opencode", "opencode", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got, err := agentForLaunch(config.Agent{Backend: "codex", Executable: "/custom/codex"}, tc.selected)
@@ -41,8 +40,8 @@ func TestAgentChoiceForNewSession(t *testing.T) {
 }
 
 func TestAgentChoiceIsParsedForNewSession(t *testing.T) {
-	opts, err := parseLaunchOptions([]string{"--dir", "/repo", "--agent", "opencode2", "--", "--session", "ses_native"})
-	if err != nil || opts.agent != "opencode2" || len(opts.child) != 2 || opts.child[0] != "--session" {
+	opts, err := parseLaunchOptions([]string{"--dir", "/repo", "--agent", "opencode", "--", "--session", "ses_native"})
+	if err != nil || opts.agent != "opencode" || len(opts.child) != 2 || opts.child[0] != "--session" {
 		t.Fatalf("options=%+v err=%v", opts, err)
 	}
 }

@@ -13,7 +13,7 @@ func TestProjectAgentSelection(t *testing.T) {
 	}{
 		{"version: 1\n", "opencode", false},
 		{"version: 1\nagent:\n  backend: codex\n", "codex", false},
-		{"version: 1\nagent:\n  backend: opencode2\n", "opencode2", false},
+		{"version: 1\nagent:\n  backend: opencode2\n", "", true},
 		{"version: 1\nagent:\n  backend: typo\n", "", true},
 	} {
 		cfg, warnings, err := Parse([]byte(tc.yaml))

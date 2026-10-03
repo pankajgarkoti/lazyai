@@ -1371,12 +1371,12 @@ func TestArchiveMakesWorktreeDormantAndPromptWakesIt(t *testing.T) {
 	}
 	wt := h.m.root
 	h.hook(hooks.Event{Type: "session", SessionID: "session-z"})
-	if st.wts["feat/z"].SessionID != "session-z" {
+	if st.wts["feat/z"].OpenCode2SessionID != "session-z" {
 		t.Fatalf("session not persisted: %+v", st.wts["feat/z"])
 	}
 	h.hook(hooks.Event{Type: "tool.before", SessionID: "session-child", CallID: "child-tool"})
 	h.hook(hooks.Event{Type: "tool.after", SessionID: "session-child", CallID: "child-tool"})
-	if st.wts["feat/z"].SessionID != "session-z" {
+	if st.wts["feat/z"].OpenCode2SessionID != "session-z" {
 		t.Fatalf("tool session replaced selected session: %+v", st.wts["feat/z"])
 	}
 	// a archives: stream gone, OpenCode stopped, worktree kept and marked dormant.

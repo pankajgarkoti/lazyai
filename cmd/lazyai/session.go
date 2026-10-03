@@ -32,10 +32,10 @@ func agentForLaunch(project config.Agent, selected string) (config.Agent, error)
 		return project, nil
 	}
 	switch selected {
-	case "opencode", "opencode2", "codex":
+	case "opencode", "codex":
 		return config.Agent{Backend: selected}, nil
 	default:
-		return config.Agent{}, fmt.Errorf("unknown session agent %q (choose opencode, opencode2, or codex)", selected)
+		return config.Agent{}, fmt.Errorf("unknown session agent %q (choose opencode or codex)", selected)
 	}
 }
 
@@ -102,9 +102,7 @@ func attachSession(args []string) error {
 			defaultAgent = opts.agent
 		}
 		if _, openErr := exec.LookPath("opencode"); openErr != nil && opts.bin == "" && opts.agent == "" {
-			if _, v2Err := exec.LookPath("opencode2"); v2Err == nil {
-				defaultAgent = "opencode2"
-			} else if _, codexErr := exec.LookPath("codex"); codexErr == nil {
+			if _, codexErr := exec.LookPath("codex"); codexErr == nil {
 				defaultAgent = "codex"
 			}
 		}

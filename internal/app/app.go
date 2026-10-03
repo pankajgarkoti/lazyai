@@ -548,10 +548,8 @@ func (m *Model) applyHook(ev hooks.Event) tea.Cmd {
 		if m.cfg.Notes != nil && s.repo.Main != "" {
 			if m.backend() == "codex" {
 				_ = m.cfg.Notes.SetWorktreeCodexSession(s.repo.Main, s.name, ev.SessionID)
-			} else if m.backend() == "opencode2" {
-				_ = m.cfg.Notes.SetWorktreeOpenCode2Session(s.repo.Main, s.name, ev.SessionID)
 			} else {
-				_ = m.cfg.Notes.SetWorktreeSession(s.repo.Main, s.name, ev.SessionID)
+				_ = m.cfg.Notes.SetWorktreeOpenCode2Session(s.repo.Main, s.name, ev.SessionID)
 			}
 		}
 	}
@@ -660,7 +658,7 @@ func (m *Model) applyHook(ev hooks.Event) tea.Cmd {
 			}
 			if m.backend() == "codex" {
 				sessionID = "codex:" + sessionID
-			} else if m.backend() == "opencode2" {
+			} else {
 				sessionID = "opencode2:" + sessionID
 			}
 			if err := m.cfg.Notes.Record(s.root, s.repo.Branch, sessionID, set); err != nil && isCur {
