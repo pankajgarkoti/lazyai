@@ -17,17 +17,17 @@ import (
 	"time"
 )
 
-// Run with OPENCODE2_TEST_BINARY=/path/to/opencode2. This starts an isolated
+// Run with OPENCODE_TEST_BINARY=/path/to/opencode. This starts an isolated
 // local server and queries its plugin catalog without making a model request.
 type nativeEvent struct {
 	Type      string `json:"type"`
 	SessionID string `json:"sessionID"`
 }
 
-func TestOpenCode2NativePluginLoads(t *testing.T) {
-	bin := os.Getenv("OPENCODE2_TEST_BINARY")
+func TestOpenCodeNativePluginLoads(t *testing.T) {
+	bin := os.Getenv("OPENCODE_TEST_BINARY")
 	if bin == "" {
-		t.Skip("set OPENCODE2_TEST_BINARY to exercise the installed beta")
+		t.Skip("set OPENCODE_TEST_BINARY to exercise the installed V2 executable")
 	}
 	var mu sync.Mutex
 	var events []nativeEvent
@@ -47,7 +47,7 @@ func TestOpenCode2NativePluginLoads(t *testing.T) {
 	defer server.Close()
 	root := t.TempDir()
 	dir := filepath.Join(root, "integration")
-	if _, err := MaterializeFor(dir, "opencode2"); err != nil {
+	if _, err := Materialize(dir); err != nil {
 		t.Fatal(err)
 	}
 	if err := EnsureV2PluginAPI(dir); err != nil {

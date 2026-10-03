@@ -8,7 +8,7 @@ import (
 )
 
 func TestBackendLaunchIsolation(t *testing.T) {
-	for _, name := range []string{"opencode", "opencode2", "codex"} {
+	for _, name := range []string{"opencode", "codex"} {
 		b := Backend{Name: name, configDir: "/cache/opencode"}
 		args, env := b.Launch("/bin/lazy ai", "/worktree", "http://127.0.0.1:1234", "secret", []string{"--model", "example"})
 		joined := strings.Join(args, " ") + strings.Join(env, " ")
@@ -22,7 +22,7 @@ func TestBackendLaunchIsolation(t *testing.T) {
 				}
 			}
 		}
-		if name == "opencode2" {
+		if name == "opencode" {
 			if !strings.Contains(joined, "--standalone") || !strings.Contains(joined, "OPENCODE_CONFIG_DIR=/cache/opencode") || strings.Contains(joined, "hooks.SessionStart=") {
 				t.Fatalf("OpenCode 2 must have a private integration server: %s", joined)
 			}
@@ -34,6 +34,9 @@ func TestBackendLaunchIsolation(t *testing.T) {
 }
 
 func TestMissingAgentAndConflictingOverrideFail(t *testing.T) {
+	if _, err := Prepare(config.Agent{Backend: "opencode2"}, ""); err == nil {
+		t.Fatal("removed opencode2 backend accepted")
+	}
 	if _, err := Prepare(config.Agent{Backend: "codex", Executable: "/nonexistent/lazyai-test-codex"}, ""); err == nil {
 		t.Fatal("missing codex silently fell back")
 	}

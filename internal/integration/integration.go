@@ -17,7 +17,7 @@ import (
 	"time"
 )
 
-//go:embed assets v2
+//go:embed v2
 var assets embed.FS
 
 // DefaultDir returns the stable per-user location for the materialized config
@@ -42,10 +42,7 @@ func Materialize(dir string) (string, error) {
 }
 
 func MaterializeFor(dir, backend string) (string, error) {
-	source := "assets"
-	if backend == "opencode2" {
-		source = "v2"
-	}
+	source := "v2"
 	err := fs.WalkDir(assets, source, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err

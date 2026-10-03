@@ -469,11 +469,9 @@ func (m *Model) OpenWorkstream(spec hooks.WorkstreamSpec, activate bool) (Workst
 	if m.cfg.Notes != nil && m.repo.Main != "" {
 		_ = m.cfg.Notes.SetWorktreeIdentity(m.repo.Main, spec.Branch, nickname, description)
 	}
-	sessionID := stored.SessionID
+	sessionID := stored.OpenCode2SessionID
 	if m.backend() == "codex" {
 		sessionID = stored.CodexSessionID
-	} else if m.backend() == "opencode2" {
-		sessionID = stored.OpenCode2SessionID
 	}
 	if _, err := m.addStreamOpts(path, spec.Branch, nickname, description, sessionID, activate); err != nil {
 		return fail(fmt.Errorf("worktree ready at %s but %s failed to start: %w", path, m.backend(), err))

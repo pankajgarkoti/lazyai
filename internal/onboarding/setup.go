@@ -39,7 +39,7 @@ func Run(root string, in io.Reader, out io.Writer, opts Options) error {
 		backend = "opencode"
 	}
 	for {
-		chosen, err := w.choice("Coding agent", []string{"opencode", "opencode2", "codex"}, backend)
+		chosen, err := w.choice("Coding agent", []string{"opencode", "codex"}, backend)
 		if err != nil {
 			return err
 		}

@@ -2,10 +2,11 @@
 
 ## Contract
 
-One project session selects `agent.backend: opencode | opencode2 | codex` from the canonical
+One project session selects `agent.backend: opencode | codex` from the canonical
 main checkout's `.lazyai/config.yaml`. Every child uses the same frozen backend;
 configuration reload cannot create a mixed project. Backend/executable changes
-require an explicit session stop and relaunch. OpenCode remains the default.
+require an explicit session stop and relaunch. OpenCode V2 is the default; V1 and
+the former `opencode2` backend name are not supported.
 
 New projects without `.lazyai/config.yaml` first answer a terminal setup flow:
 agent, optional executable, strict mode and default workflow, then a save/start
@@ -72,8 +73,9 @@ invalidate Codex's native hook-trust hashes.
   or `fork` passthrough commands override automatic Codex selection.
   Live diff baselines/drafts have the same
    detach-versus-stop lifetime as before.
-- Schema v4 stores an independent OpenCode 2 conversation ID and Show records
-  use the `opencode2:` prefix. V2's plugin implements its separate hook/tool
+- Schema v4 stores the OpenCode V2 conversation ID separately from legacy V1 IDs.
+  The `opencode` backend uses this column and Show records retain the `opencode2:`
+  storage prefix. V2's plugin implements its hook/tool
   API and retains the same host-side snapshot acknowledgment and Show validation.
 - Use native local Codex; remote app-server and Codex-managed worktree launch
   options can change execution/environment roots and are not supported by this
@@ -85,7 +87,7 @@ invalidate Codex's native hook-trust hashes.
 go vet ./...
 go test -race ./...
 go build -o bin/lazyai ./cmd/lazyai
-OPENCODE2_TEST_BINARY=/path/to/opencode2 go test ./internal/integration -run TestOpenCode2NativePluginLoads -count=1
+OPENCODE_TEST_BINARY=/path/to/opencode go test ./internal/integration -run TestOpenCodeNativePluginLoads -count=1
 python3 scripts/test-codex-bridge.py
 python3 scripts/test-sessions-tmux.py --real-opencode --real-codex
 ```

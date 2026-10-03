@@ -3,7 +3,7 @@ version: 1
 
 agent:
   # All workstreams use this backend. Changes require lazyai stop, then relaunch.
-  backend: opencode # opencode | opencode2 | codex
+  backend: opencode # opencode (V2) | codex
   # Optional executable path; defaults to the backend name on PATH.
   # executable: /path/to/codex
 
