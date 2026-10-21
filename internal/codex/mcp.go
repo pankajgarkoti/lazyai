@@ -49,7 +49,7 @@ func (b Bridge) ServeMCP(in io.Reader, out io.Writer) error {
 			default:
 				version = "2025-06-18"
 			}
-			result = map[string]any{"protocolVersion": version, "capabilities": map[string]any{"tools": map[string]any{}}, "serverInfo": map[string]string{"name": "lazyai", "version": "1"}, "instructions": Instructions}
+			result = map[string]any{"protocolVersion": version, "capabilities": map[string]any{"tools": map[string]any{}}, "serverInfo": map[string]string{"name": "lazyai", "version": "1"}, "instructions": b.instructions()}
 			if _, err := b.Send(hooks.Event{Type: "hello", Component: "tools"}); err != nil {
 				return err
 			}
