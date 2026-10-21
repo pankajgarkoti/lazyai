@@ -166,7 +166,7 @@ func (m Model) renderMode() string {
 func (m Model) renderStatusRight() string {
 	var plug string
 	label := m.backend()
-	if m.backend() == "codex" && !m.pluginOK {
+	if hookDriven(m.backend()) && !m.pluginOK {
 		label += " tools:"
 		if m.toolsOK {
 			label += "ok"

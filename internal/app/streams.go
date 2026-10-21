@@ -470,8 +470,11 @@ func (m *Model) OpenWorkstream(spec hooks.WorkstreamSpec, activate bool) (Workst
 		_ = m.cfg.Notes.SetWorktreeIdentity(m.repo.Main, spec.Branch, nickname, description)
 	}
 	sessionID := stored.OpenCode2SessionID
-	if m.backend() == "codex" {
+	switch m.backend() {
+	case "codex":
 		sessionID = stored.CodexSessionID
+	case "claude":
+		sessionID = stored.ClaudeSessionID
 	}
 	if _, err := m.addStreamOpts(path, spec.Branch, nickname, description, sessionID, activate); err != nil {
 		return fail(fmt.Errorf("worktree ready at %s but %s failed to start: %w", path, m.backend(), err))

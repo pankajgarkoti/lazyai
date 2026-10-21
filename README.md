@@ -1,6 +1,6 @@
 # lazyai
 
-A lazygit-style, Vim-modal terminal UI around **OpenCode, OpenCode 2, or Codex CLI**.
+A lazygit-style, Vim-modal terminal UI around **OpenCode, OpenCode 2, Codex CLI, or Claude Code**.
 
 The selected agent runs unchanged, as a real terminal process inside the right pane. LazyAI
 adds a sidebar of the files the agent reads and changes, a diff viewer for the
@@ -55,8 +55,8 @@ setup questions before starting the agent. Existing configurations are reused.
 
 The setup asks for:
 
-1. **Coding agent:** OpenCode (V2) or Codex. OpenCode is the default when installed;
-   Codex is suggested when it is the available alternative.
+1. **Coding agent:** OpenCode (V2), Codex or Claude Code. OpenCode is the default when
+   installed; otherwise Codex, then Claude Code, is suggested when available.
 2. **Executable:** an optional custom path; blank uses the agent on `PATH`.
 3. **Strict mode:** whether entering the agent opens a structured task form
    instead of accepting free-form instructions. Default: off.
@@ -82,7 +82,7 @@ Set the agent **once per project**, in the main checkout's `.lazyai/config.yaml`
 ```yaml
 version: 1
 agent:
-  backend: opencode # opencode (V2) | codex; omitted means opencode
+  backend: opencode # opencode (V2) | codex | claude; omitted means opencode
   # executable: /absolute/path/to/codex # optional; defaults to backend on PATH
 interactive:
   strict: false
@@ -91,7 +91,7 @@ interactive:
 All workstreams use that agent, including `w`, `R`, and agent-driven
 `setup_workstreams`. Linked worktrees share the main checkout's setting.
 Codex requires version **0.155.1 or newer**; the integration is tested against
-0.155.1. Arguments after `--` go to the selected CLI. The existing `--opencode`
+0.155.1. Claude Code requires version **2.0 or newer**. Arguments after `--` go to the selected CLI. The existing `--opencode`
 executable override remains available for OpenCode projects.
 
 To switch, edit the setting, run `lazyai stop --dir /path/to/project`, and launch
@@ -101,10 +101,10 @@ required** for agent changes. Detach/reattach keeps the running agent and its
 screen, even if the file has changed. A full stop retains worktree identities and
 saved Show records, but not live screens, in-memory diff baselines or drafts.
 Native chat histories remain with their respective agents. Reopened workstreams
-resume the saved conversation for the selected backend. OpenCode V2 and Codex
-IDs are stored separately; legacy V1 IDs are never passed to V2.
+resume the saved conversation for the selected backend. OpenCode V2, Codex and
+Claude Code IDs are stored separately; legacy V1 IDs are never passed to V2.
 
-For a **new** session, `--agent opencode|codex` overrides the project's
+For a **new** session, `--agent opencode|codex|claude` overrides the project's
 default without changing `.lazyai/config.yaml`. All workstreams in that
 session use the chosen agent; reattaching an existing session ignores new
 launch options. Stop that session before choosing another agent. If the project
@@ -136,7 +136,18 @@ moves, adds and deletes. Shell-based reads/writes and arbitrary third-party file
 tools are not automatically tracked. Hosted tools without lifecycle callbacks
 also cannot drive the activity spinner.
 
-Unknown backends, missing executables and unsupported Codex versions fail at
+**Claude Code setup:** LazyAI launches `claude` with an invocation-scoped
+`--settings` (lifecycle hooks) and `--mcp-config` (the `lazyai` stdio MCP server).
+Claude Code merges these with your own settings and hooks; auth, model,
+permissions, `CLAUDE.md` and plugins stay where they are. LazyAI makes no
+permission decisions. Native `Read`, `Write`, `Edit`, `MultiEdit` and
+`NotebookEdit` calls are tracked, with acknowledged pre-edit snapshots, so
+`read_file` is optional. Permission prompts and `AskUserQuestion` raise attention.
+Reopened workstreams use `claude --resume <id>`; an explicit `--resume`,
+`--continue` or `--session-id` passthrough wins. Bash-based reads/writes are not
+tracked.
+
+Unknown backends, missing executables and unsupported Codex/Claude Code versions fail at
 startup instead of launching another agent. Invalid contract templates still
 open the UI with strict entry disabled and a config error; malformed YAML or an
 unsupported config version prevents a new session from choosing a backend.
@@ -478,7 +489,7 @@ You can rename the template and add or remove fields to fit your workflow:
 | Setting | What it does |
 |---|---|
 | `version` | Required; currently `1` |
-| `agent.backend` | `opencode` (V2, default) or `codex`; applies to all workstreams on the next project-session start |
+| `agent.backend` | `opencode` (V2, default), `codex` or `claude`; applies to all workstreams on the next project-session start |
 | `agent.executable` | Optional executable path/name for the selected backend; changes require a session restart |
 | `interactive.strict` | Defaults to `false`; `true` enables the form and requires at least one contract |
 | `interactive.default_contract` | Initially highlighted contract; must exist in `contracts` if set. If omitted, LazyAI highlights the first name alphabetically |
@@ -516,7 +527,7 @@ else; unknown top-level keys only warn. Field types are `text` (one line) and
 override with `LAZYAI_DB`) keeps, per repository:
 
 - `show_sets` / `show_locations` — every accepted `show_locations` set with
-  its notes, branch and agent session id (Codex IDs are prefixed with `codex:`).
+  its notes, branch and agent session id (Codex and Claude Code IDs are prefixed with `codex:` and `claude:`).
 - `worktrees` — every worktree LazyAI ran a workstream in, with created /
   last-opened times, a `dormant` flag, and (schema v1) its `nickname` and
   `description`. `a` archives the current workstream (stops its OpenCode and
@@ -591,7 +602,7 @@ internal/input        raw byte router: child vs host, Ctrl+] / Ctrl+Space / Ctrl
 internal/hooks        loopback HTTP receiver for plugin events (one token per workstream); setup requests get a reply
 internal/integration  embedded OpenCode plugin (show_locations, setup_workstreams) + skill, materialized on start
 internal/agent        project backend selection, executable checks and invocation-scoped integration settings
-internal/codex        Codex lifecycle hook adapter and stdio MCP tools
+internal/codex        Codex/Claude Code lifecycle hook adapters and stdio MCP tools
 internal/config       creates/loads .lazyai/config.yaml: default templates, validation, deterministic rendering
 internal/onboarding   first-run terminal questions and non-overwriting configuration initialization
 internal/activity     file ledger (read/modified/shown, reasons, baselines)

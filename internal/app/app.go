@@ -112,6 +112,7 @@ type NotesStore interface {
 	SetWorktreeIdentity(repo, branch, nickname, description string) error
 	SetWorktreeSession(repo, branch, sessionID string) error
 	SetWorktreeCodexSession(repo, branch, sessionID string) error
+	SetWorktreeClaudeSession(repo, branch, sessionID string) error
 	SetWorktreeOpenCode2Session(repo, branch, sessionID string) error
 	SetDormant(repo, branch string, dormant bool) error
 	Worktrees(repo string) ([]notes.Worktree, error)
@@ -296,6 +297,12 @@ func (m Model) backend() string {
 		return "opencode"
 	}
 	return m.cfg.Backend
+}
+
+// hookDriven reports backends integrated through per-call lifecycle hooks
+// (Codex, Claude Code) rather than the OpenCode plugin.
+func hookDriven(backend string) bool {
+	return backend == "codex" || backend == "claude"
 }
 
 // strictActive reports whether instruction entry for the current stream goes
@@ -546,9 +553,12 @@ func (m *Model) applyHook(ev hooks.Event) tea.Cmd {
 	if ev.Type == "session" && ev.SessionID != "" && ev.SessionID != s.sessionID {
 		s.sessionID = ev.SessionID
 		if m.cfg.Notes != nil && s.repo.Main != "" {
-			if m.backend() == "codex" {
+			switch m.backend() {
+			case "codex":
 				_ = m.cfg.Notes.SetWorktreeCodexSession(s.repo.Main, s.name, ev.SessionID)
-			} else {
+			case "claude":
+				_ = m.cfg.Notes.SetWorktreeClaudeSession(s.repo.Main, s.name, ev.SessionID)
+			default:
 				_ = m.cfg.Notes.SetWorktreeOpenCode2Session(s.repo.Main, s.name, ev.SessionID)
 			}
 		}
@@ -586,7 +596,7 @@ func (m *Model) applyHook(ev hooks.Event) tea.Cmd {
 			s.active = map[string]bool{}
 		}
 		s.active[callID(ev)] = true
-		if ev.Backend != "codex" {
+		if !hookDriven(ev.Backend) {
 			s.attention = false
 		}
 		if !m.ticking {
@@ -607,7 +617,7 @@ func (m *Model) applyHook(ev hooks.Event) tea.Cmd {
 		s.attention = false
 		s.attentionCalls = nil
 	case "attention":
-		if ev.Backend == "codex" {
+		if hookDriven(ev.Backend) {
 			if s.attentionCalls == nil {
 				s.attentionCalls = map[string]bool{}
 			}
@@ -656,9 +666,10 @@ func (m *Model) applyHook(ev hooks.Event) tea.Cmd {
 			if sessionID == "" {
 				sessionID = s.sessionID
 			}
-			if m.backend() == "codex" {
-				sessionID = "codex:" + sessionID
-			} else {
+			switch m.backend() {
+			case "codex", "claude":
+				sessionID = m.backend() + ":" + sessionID
+			default:
 				sessionID = "opencode2:" + sessionID
 			}
 			if err := m.cfg.Notes.Record(s.root, s.repo.Branch, sessionID, set); err != nil && isCur {
