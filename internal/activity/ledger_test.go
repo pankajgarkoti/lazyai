@@ -105,6 +105,18 @@ func TestShownAttachesReasonWithoutClearingRead(t *testing.T) {
 	}
 }
 
+func TestSnapshotOutsideWorkspaceIsIgnoredNotAnError(t *testing.T) {
+	l, _ := newTestLedger(t)
+	outside := filepath.Join(t.TempDir(), "elsewhere.go")
+	if err := l.Snapshot(outside); err != nil {
+		t.Fatalf("outside path should be ignored, got %v", err)
+	}
+	l.MarkWritten(outside)
+	if l.Len() != 0 {
+		t.Fatal("outside path must not be tracked")
+	}
+}
+
 func TestFailedOrRevertedEditDoesNotBecomeAChange(t *testing.T) {
 	l, root := newTestLedger(t)
 	p := filepath.Join(root, "dirty.txt")

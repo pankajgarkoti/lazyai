@@ -14,6 +14,7 @@ import (
 	"github.com/muesli/termenv"
 
 	"lazyai/internal/diff"
+	"lazyai/internal/git"
 	"lazyai/internal/highlight"
 	"lazyai/internal/hooks"
 	"lazyai/internal/input"
@@ -1387,8 +1388,9 @@ func TestArchiveMakesWorktreeDormantAndPromptWakesIt(t *testing.T) {
 	if st.wts["feat/z"].OpenCode2SessionID != "session-z" {
 		t.Fatalf("tool session replaced selected session: %+v", st.wts["feat/z"])
 	}
-	// a archives: stream gone, OpenCode stopped, worktree kept and marked dormant.
+	// a a archives: stream gone, OpenCode stopped, worktree kept and marked dormant.
 	h.update(EscapeMsg{})
+	h.key("a")
 	h.key("a")
 	if len(h.m.streams) != 1 || h.m.name != "main" || !st.wts["feat/z"].Dormant {
 		t.Fatalf("archive: streams=%d cur=%q dormant=%v", len(h.m.streams), h.m.name, st.wts["feat/z"].Dormant)
@@ -1493,6 +1495,82 @@ func newWorktree(h *harness, name, base string) {
 	h.key(base)
 }
 
+func TestArchiveNeedsSecondAAndAnyOtherKeyCancels(t *testing.T) {
+	h := twoStreams(t)
+	h.update(EscapeMsg{})
+	name := h.m.name
+	h.key("a")
+	if len(h.m.streams) != 2 || h.m.pendingArchive != name || !strings.Contains(h.m.notice, "press a again") {
+		t.Fatalf("first a should only ask: streams=%d pending=%q notice=%q", len(h.m.streams), h.m.pendingArchive, h.m.notice)
+	}
+	h.key("z")
+	h.key("z")
+	h.key("a")
+	if len(h.m.streams) != 2 {
+		t.Fatal("a key in between should cancel the pending archive")
+	}
+	h.key("a")
+	if len(h.m.streams) != 1 || h.m.pendingArchive != "" {
+		t.Fatalf("a a should archive: streams=%d", len(h.m.streams))
+	}
+}
+
+func TestWakeReopensSavedFolderAfterAgentSwitchedBranches(t *testing.T) {
+	h := newHarness(t)
+	h.writeFile(t, "a.go", 3)
+	gitRepo(t, h.root)
+	st := newMemStore()
+	h.m.cfg.Notes = st
+	h.m.refreshRepo()
+	h.m.name = "main"
+	h.m.registerWorktree()
+	res, err := h.m.OpenWorkstream(hooks.WorkstreamSpec{Branch: "feat/z", Nickname: "Zed"}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wt := res.Root
+	h.hook(hooks.Event{Type: "session", SessionID: "session-z"})
+	// The agent moves the worktree to another branch and leaves work uncommitted.
+	cmd := exec.Command("git", "switch", "-q", "-c", "feat/z-renamed")
+	cmd.Dir = wt
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git switch: %s", out)
+	}
+	os.WriteFile(filepath.Join(wt, "wip.txt"), []byte("unsaved"), 0o644)
+	h.update(EscapeMsg{})
+	h.key("a")
+	h.key("a")
+	if len(h.m.streams) != 1 || !st.wts["feat/z"].Dormant {
+		t.Fatalf("archive: streams=%d", len(h.m.streams))
+	}
+	// Waking by the original name reopens the same folder and session; no
+	// "exists but is not a worktree" error and no second worktree for feat/z.
+	openWorktreePrompt(h, "feat/z")
+	if len(h.m.streams) != 2 || !git.SamePath(h.m.root, wt) || st.wts["feat/z"].Dormant {
+		t.Fatalf("wake: streams=%d root=%q want %q notice=%q", len(h.m.streams), h.m.root, wt, h.m.notice)
+	}
+	if _, err := os.Stat(filepath.Join(h.m.root, "wip.txt")); err != nil {
+		t.Fatal("woke without the uncommitted work")
+	}
+	if got := h.sessions[len(h.sessions)-1]; got != "session-z" {
+		t.Fatalf("reopened session=%q want session-z", got)
+	}
+	list, _ := git.Worktrees(h.root)
+	if len(list) != 2 {
+		t.Fatalf("expected main + one worktree, got %+v", list)
+	}
+	// Opening the branch it switched to lands on the running workstream rather
+	// than starting a second agent in the same folder.
+	h.update(EscapeMsg{})
+	h.key("k")
+	if _, err := h.m.OpenWorkstream(hooks.WorkstreamSpec{Branch: "feat/z-renamed"}, true); err != nil {
+		t.Fatal(err)
+	}
+	if len(h.m.streams) != 2 || !git.SamePath(h.m.root, wt) {
+		t.Fatalf("second agent in one worktree: streams=%d root=%q", len(h.m.streams), h.m.root)
+	}
+}
+
 func TestMainPinnedOnTopAndWorktreesAppendOnly(t *testing.T) {
 	h := newHarness(t)
 	h.writeFile(t, "a.go", 3)
@@ -1519,6 +1597,7 @@ func TestMainPinnedOnTopAndWorktreesAppendOnly(t *testing.T) {
 	if h.m.name != "main" {
 		t.Fatalf("expected main, on %s", h.m.name)
 	}
+	h.key("a")
 	h.key("a")
 	if names() != "feat/one,feat/two" {
 		t.Fatalf("after archive %s", names())
@@ -1655,6 +1734,7 @@ func TestWorktreePromptFiltersBranchesLiveAndSelects(t *testing.T) {
 	}
 	// A running workstream and a dormant worktree are offered too, tagged.
 	h.update(EscapeMsg{})
+	h.key("a")
 	h.key("a") // archive feat/beta -> dormant
 	h.key("w")
 	var kinds []string

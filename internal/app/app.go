@@ -218,8 +218,9 @@ type Model struct {
 	matches     []candidate     // live fuzzy matches for the typed name
 	matchSel    int             // selected match, -1 = none (use the typed text)
 
-	leader       bool   // Ctrl+Space pressed; next key is a workstream command
-	pendingClose string // stream name awaiting a second "x"
+	leader         bool   // Ctrl+Space pressed; next key is a workstream command
+	pendingClose   string // stream name awaiting a second "x"
+	pendingArchive string // stream name awaiting a second "a"
 
 	project        config.Config // validated .lazyai/config.yaml (zero when absent/invalid)
 	configErr      string        // persistent configuration error shown in the status bar

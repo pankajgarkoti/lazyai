@@ -115,6 +115,25 @@ func Worktrees(dir string) ([]Worktree, error) {
 	return list, nil
 }
 
+// WorktreeAt finds the worktree of dir's repository whose folder is path,
+// whatever branch it has checked out now.
+func WorktreeAt(dir, path string) (Worktree, bool) {
+	list, err := Worktrees(dir)
+	if err != nil {
+		return Worktree{}, false
+	}
+	want := realpath(path)
+	for _, wt := range list {
+		if wt.Path == want {
+			return wt, true
+		}
+	}
+	return Worktree{}, false
+}
+
+// SamePath reports whether a and b name the same folder.
+func SamePath(a, b string) bool { return realpath(a) == realpath(b) }
+
 // ValidateBranch rejects names git would refuse or that would escape the
 // worktree directory.
 func ValidateBranch(name string) error {

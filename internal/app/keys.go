@@ -21,6 +21,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if key != "x" {
 		m.pendingClose = ""
 	}
+	if key != "a" {
+		m.pendingArchive = ""
+	}
 	return m.applyKey(key)
 }
 
@@ -40,8 +43,7 @@ func (m Model) applyKey(key string) (tea.Model, tea.Cmd) {
 	case "x":
 		return m.requestClose()
 	case "a":
-		cmd := m.archiveStream()
-		return m, cmd
+		return m.requestArchive()
 	case "ctrl+q":
 		m.openQuit()
 		return m, nil

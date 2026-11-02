@@ -117,6 +117,7 @@ func TestWorkstreamReopensOnlySelectedBackendConversation(t *testing.T) {
 	}
 	h.update(EscapeMsg{})
 	h.key("a")
+	h.key("a")
 	h.m.cfg.Backend = "opencode"
 	if _, err := h.m.OpenWorkstream(hooks.WorkstreamSpec{Branch: "feature"}, true); err != nil {
 		t.Fatal(err)
@@ -126,6 +127,7 @@ func TestWorkstreamReopensOnlySelectedBackendConversation(t *testing.T) {
 	}
 	h.hook(hooks.Event{Type: "session", SessionID: "v2-session"})
 	h.update(EscapeMsg{})
+	h.key("a")
 	h.key("a")
 	h.m.cfg.Backend = "codex"
 	if _, err := h.m.OpenWorkstream(hooks.WorkstreamSpec{Branch: "feature"}, true); err != nil {
@@ -137,6 +139,7 @@ func TestWorkstreamReopensOnlySelectedBackendConversation(t *testing.T) {
 	h.hook(hooks.Event{Type: "session", SessionID: "codex-session", Backend: "codex"})
 	h.update(EscapeMsg{})
 	h.key("a")
+	h.key("a")
 	if _, err := h.m.OpenWorkstream(hooks.WorkstreamSpec{Branch: "feature"}, true); err != nil {
 		t.Fatal(err)
 	}
@@ -144,6 +147,7 @@ func TestWorkstreamReopensOnlySelectedBackendConversation(t *testing.T) {
 		t.Fatalf("Codex session lost: %s", got)
 	}
 	h.update(EscapeMsg{})
+	h.key("a")
 	h.key("a")
 	h.m.cfg.Backend = "opencode"
 	if _, err := h.m.OpenWorkstream(hooks.WorkstreamSpec{Branch: "feature"}, true); err != nil {
@@ -153,6 +157,7 @@ func TestWorkstreamReopensOnlySelectedBackendConversation(t *testing.T) {
 		t.Fatalf("OpenCode 2 session lost: %s", got)
 	}
 	h.update(EscapeMsg{})
+	h.key("a")
 	h.key("a")
 	h.m.cfg.Backend = "opencode"
 	if _, err := h.m.OpenWorkstream(hooks.WorkstreamSpec{Branch: "feature"}, true); err != nil {

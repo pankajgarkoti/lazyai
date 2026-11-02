@@ -227,7 +227,7 @@ func (m Model) renderHint() string {
 	case m.info:
 		hints = []kv{{"any key", "close"}}
 	case m.normal():
-		hints = []kv{{"j/k", "workstream"}, {"w", "worktree"}, {"K", "details"}, {"a", "archive"}, {"?", "help"}}
+		hints = []kv{{"j/k", "workstream"}, {"w", "worktree"}, {"K", "details"}, {"a a", "archive"}, {"?", "help"}}
 		if n := len(m.restorable); n > 0 {
 			hints = append([]kv{{"R", fmt.Sprintf("restore %d", n)}}, hints...)
 		}
@@ -662,7 +662,7 @@ func renderHelp(w int) []string {
 		{"session lifecycle (available on every screen)", "ctrl+q: detach and keep all work running · reattach: run lazyai for the project · ctrl+space q: quit the session (stops every workstream, after confirming) · lazyai list: inspect sessions · lazyai stop --dir DIR: stop a project and all workstreams"},
 		{"interactive / terminal (the pane owns the keys)", "esc: normal (pane remains visible, no input) · ctrl+]: send a real ESC into the pane · ctrl+space: workstream leader · ctrl+z: zoom"},
 		{"normal (pane focused out)", "i: agent · t: terminal · d: diff (when there are changes) · s: show (when the agent pointed at code) · j/k: previous / next workstream · h/l: pick a file for d · enter: back into the pane"},
-		{"workstreams (one agent per git worktree)", "j / k in normal, h / l in diff / show: previous / next · w: new or wake a dormant worktree (branch, nickname, optional description) · K: details float (branch, description, worktree, activity; any key closes) · R: restore the workstreams the previous session left open · e: rename the current one · a: archive (dormant: stops the agent, keeps the worktree) · x x: close · from a pane: ctrl+space then h / l / 1-9 / ctrl+space (last) / w / R / K / e / a / x"},
+		{"workstreams (one agent per git worktree)", "j / k in normal, h / l in diff / show: previous / next · w: new or wake a dormant worktree (branch, nickname, optional description) · K: details float (branch, description, worktree, activity; any key closes) · R: restore the workstreams the previous session left open · e: rename the current one · a a: archive (dormant: stops the agent, keeps the worktree; w wakes it in the same folder) · x x: close · from a pane: ctrl+space then h / l / 1-9 / ctrl+space (last) / w / R / K / e / a / x"},
 		{"strip glyphs", "! agent waits on you · spinner: tool calls running · " + theme.Unseen + " output you have not looked at · " + theme.Dot + " idle"},
 		{"strict contracts (.lazyai/config.yaml)", "i / enter: choose a template, then fill its form · arrows / 1-9 / enter: choose · ctrl+t: change template · tab: next field · ctrl+s: send · esc: keep draft and close · agent questions and permissions bypass the form · ctrl+space f: freestyle · ctrl+space c: reload config"},
 		{"sidebar (diff / show)", "j/k: select · h/l: workstream · 1-9: jump · enter: focus content · esc: normal · tab: focus"},
