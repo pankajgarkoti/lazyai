@@ -3,6 +3,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os/exec"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"lazyai/internal/codex"
 	"lazyai/internal/config"
 	"lazyai/internal/integration"
 )
@@ -24,7 +26,7 @@ func Prepare(cfg config.Agent, opencodeOverride string) (Backend, error) {
 	if cfg.Backend == "" {
 		cfg.Backend = "opencode"
 	}
-	if cfg.Backend != "opencode" && cfg.Backend != "codex" {
+	if cfg.Backend != "opencode" && cfg.Backend != "codex" && cfg.Backend != "claude" {
 		return Backend{}, fmt.Errorf("unknown agent %q", cfg.Backend)
 	}
 	bin := cfg.Executable
@@ -59,6 +61,18 @@ func Prepare(cfg config.Agent, opencodeOverride string) (Backend, error) {
 			return Backend{}, fmt.Errorf("Codex 0.155.1 or newer is required for LazyAI hooks (found %q)", strings.TrimSpace(string(out)))
 		}
 	}
+	if b.Name == "claude" {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		out, err := exec.CommandContext(ctx, path, "--version").Output()
+		if err != nil {
+			return Backend{}, fmt.Errorf("check Claude Code version: %w", err)
+		}
+		var major int
+		if n, _ := fmt.Sscanf(strings.TrimSpace(string(out)), "%d.", &major); n != 1 || major < 2 {
+			return Backend{}, fmt.Errorf("Claude Code 2.0 or newer is required for LazyAI hooks (found %q)", strings.TrimSpace(string(out)))
+		}
+	}
 	if b.Name == "opencode" {
 		dir, err := integration.DefaultDirFor(b.Name)
 		if err != nil {
@@ -83,6 +97,9 @@ func (b Backend) Launch(lazyai, root, url, token string, extra []string) (args, 
 		// process so its integration token is never sent to a shared user service.
 		return append([]string{"--standalone"}, extra...), append(env, "OPENCODE_CONFIG_DIR="+b.configDir)
 	}
+	if b.Name == "claude" {
+		return claudeLaunch(lazyai, root, url, token, extra), append(env, "LAZYAI_BACKEND=claude")
+	}
 	// A stable command keeps Codex's native hook trust valid across launches.
 	command := "'" + strings.ReplaceAll(lazyai, "'", "'\"'\"'") + "' __codex-hook"
 	for _, event := range []string{"SessionStart", "SubagentStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PermissionRequest", "Stop", "Interrupt", "SessionEnd"} {
@@ -92,4 +109,30 @@ func (b Backend) Launch(lazyai, root, url, token string, extra []string) (args, 
 	mcp := fmt.Sprintf("mcp_servers.lazyai={command=%s,args=[\"__mcp\"],env={LAZYAI_WORKTREE=%s,LAZYAI_HOOK_URL=%s,LAZYAI_HOOK_TOKEN=%s},tool_timeout_sec=130}", strconv.Quote(lazyai), strconv.Quote(root), strconv.Quote(url), strconv.Quote(token))
 	args = append(args, "-c", mcp)
 	return append(args, extra...), env
+}
+
+// claudeLaunch adds session-layer hooks and the lazyai MCP server. Claude Code
+// merges --settings hooks with the user's and project's own hooks.
+func claudeLaunch(lazyai, root, url, token string, extra []string) []string {
+	command := "'" + strings.ReplaceAll(lazyai, "'", "'\"'\"'") + "' __claude-hook"
+	type hook struct {
+		Type    string `json:"type"`
+		Command string `json:"command"`
+		Timeout int    `json:"timeout"`
+	}
+	type matcher struct {
+		Hooks []hook `json:"hooks"`
+	}
+	settings := map[string]map[string][]matcher{"hooks": {}}
+	for _, event := range codex.ClaudeHookEvents {
+		settings["hooks"][event] = []matcher{{Hooks: []hook{{Type: "command", Command: command, Timeout: 5}}}}
+	}
+	settingsJSON, _ := json.Marshal(settings)
+	// Explicit MCP env also works if Claude Code filters the inherited environment.
+	mcpJSON, _ := json.Marshal(map[string]any{"mcpServers": map[string]any{"lazyai": map[string]any{
+		"type": "stdio", "command": lazyai, "args": []string{"__mcp"},
+		"env": map[string]string{"LAZYAI_BACKEND": "claude", "LAZYAI_WORKTREE": root, "LAZYAI_HOOK_URL": url, "LAZYAI_HOOK_TOKEN": token},
+	}}})
+	// --mcp-config is variadic; the following --settings ends its value list.
+	return append([]string{"--mcp-config", string(mcpJSON), "--settings", string(settingsJSON)}, extra...)
 }

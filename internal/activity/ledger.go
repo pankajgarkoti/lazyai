@@ -114,10 +114,12 @@ func (l *Ledger) MarkRead(p string) bool {
 
 // Snapshot captures the file's current content as its baseline if no baseline
 // exists yet. Call it before the agent's first modification of the file.
+// Files outside the workspace are not tracked, so there is nothing to
+// capture; that is not an error the user can act on.
 func (l *Ledger) Snapshot(p string) error {
 	rel, abs, ok := l.Rel(p)
 	if !ok {
-		return fmt.Errorf("snapshot path is outside the workspace: %s", p)
+		return nil
 	}
 	if _, done := l.baseline[rel]; done {
 		return nil

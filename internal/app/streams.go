@@ -173,6 +173,24 @@ func validateIdentity(nickname, description string) error {
 	return nil
 }
 
+// requestArchive asks for confirmation on the first a and archives on the
+// second, like x x for close: archiving stops the agent.
+func (m Model) requestArchive() (tea.Model, tea.Cmd) {
+	if len(m.streams) < 2 {
+		m.pendingArchive = ""
+		m.notice = "cannot archive the last workstream"
+		return m, nil
+	}
+	if m.pendingArchive == m.name && m.pendingArchive != "" {
+		m.pendingArchive = ""
+		cmd := m.archiveStream()
+		return m, cmd
+	}
+	m.pendingArchive = m.name
+	m.notice = fmt.Sprintf("archive workstream %s and stop its %s? press a again", m.displayName(), m.backend())
+	return m, nil
+}
+
 // archiveStream sends the current workstream dormant: OpenCode and its shell
 // stop, the worktree stays on disk and is listed under w for waking.
 func (m *Model) archiveStream() tea.Cmd {
@@ -355,8 +373,7 @@ func (m Model) leaderKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "R":
 		m.restoreWorkstreams()
 	case "a":
-		cmd := m.archiveStream()
-		return m, cmd
+		return m.requestArchive()
 	case "x":
 		return m.requestClose()
 	case "q":
@@ -460,18 +477,43 @@ func (m *Model) OpenWorkstream(spec hooks.WorkstreamSpec, activate bool) (Workst
 	if spec.Base != "" && !git.BranchExists(m.root, spec.Base) {
 		return fail(fmt.Errorf("base branch %q does not exist", spec.Base))
 	}
-	path, created, err := git.EnsureWorktree(m.root, spec.Branch, spec.Base)
-	if err != nil {
-		return fail(err)
+	// A known worktree reopens at its saved folder even if its agent has since
+	// switched branches there: the uncommitted work and session live in it.
+	var path string
+	var created bool
+	if storedOK && stored.Path != "" {
+		if wt, ok := git.WorktreeAt(m.root, stored.Path); ok {
+			path = wt.Path
+		}
+	}
+	if path == "" {
+		var err error
+		if path, created, err = git.EnsureWorktree(m.root, spec.Branch, spec.Base); err != nil {
+			return fail(err)
+		}
 	}
 	res.Root, res.Created = path, created
+	// One agent per worktree: if that folder is already running under another
+	// name, go there instead of starting a second agent in it.
+	for i, s := range m.streams {
+		if git.SamePath(s.root, path) {
+			res.Launched = true
+			if activate {
+				m.switchTo(i)
+			}
+			return res, nil
+		}
+	}
 	// Identity is recorded before launch so it survives a failed start.
 	if m.cfg.Notes != nil && m.repo.Main != "" {
 		_ = m.cfg.Notes.SetWorktreeIdentity(m.repo.Main, spec.Branch, nickname, description)
 	}
 	sessionID := stored.OpenCode2SessionID
-	if m.backend() == "codex" {
+	switch m.backend() {
+	case "codex":
 		sessionID = stored.CodexSessionID
+	case "claude":
+		sessionID = stored.ClaudeSessionID
 	}
 	if _, err := m.addStreamOpts(path, spec.Branch, nickname, description, sessionID, activate); err != nil {
 		return fail(fmt.Errorf("worktree ready at %s but %s failed to start: %w", path, m.backend(), err))

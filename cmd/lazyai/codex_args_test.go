@@ -18,3 +18,15 @@ func TestCodexResumeKeepsConfigAndSandboxFlags(t *testing.T) {
 		t.Fatal("mutated base arguments")
 	}
 }
+
+func TestClaudeResumeKeepsFlagsAndExplicitSelection(t *testing.T) {
+	base := []string{"--model", "opus"}
+	if got := claudeArgs(base, "sid"); !reflect.DeepEqual(got, []string{"--resume", "sid", "--model", "opus"}) {
+		t.Fatalf("args=%v", got)
+	}
+	for _, explicit := range [][]string{{"--continue"}, {"-r", "other"}, {"--resume=other"}, {"--session-id", "u"}} {
+		if got := claudeArgs(explicit, "sid"); !reflect.DeepEqual(got, explicit) {
+			t.Fatalf("explicit selection lost: %v", got)
+		}
+	}
+}

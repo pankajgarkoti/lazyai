@@ -2,7 +2,7 @@
 
 ## Contract
 
-One project session selects `agent.backend: opencode | codex` from the canonical
+One project session selects `agent.backend: opencode | codex | claude` from the canonical
 main checkout's `.lazyai/config.yaml`. Every child uses the same frozen backend;
 configuration reload cannot create a mixed project. Backend/executable changes
 require an explicit session stop and relaunch. OpenCode V2 is the default; V1 and
@@ -31,7 +31,9 @@ configuration and history. Files and worktree identities are shared project stat
    directory and runs `--standalone` so the server inherits each workstream's
    integration token. Its cached `@opencode/plugin` dependency is installed by
    npm on first launch. Codex receives `-c` session-layer hooks and the
-   `lazyai` MCP server. Existing user/project hooks load alongside these hooks.
+   `lazyai` MCP server. Claude Code receives the same hooks via `--settings` JSON
+   and the MCP server via `--mcp-config` JSON (`LAZYAI_BACKEND=claude`).
+   Existing user/project hooks load alongside these hooks.
 3. Each workstream has its own hook token. `internal/hooks` authenticates incoming
    events and stamps their workstream identity. Closed children lose their token.
 4. `internal/codex` maps released hook payloads into common events, preserving
@@ -80,6 +82,18 @@ invalidate Codex's native hook-trust hashes.
 - Use native local Codex; remote app-server and Codex-managed worktree launch
   options can change execution/environment roots and are not supported by this
   worktree-scoped adapter.
+
+## Claude Code requirements and boundaries
+
+- Minimum version: 2.0 (checked with `claude --version` before startup).
+- Hooks: SessionStart (also injects LazyAI instructions), UserPromptSubmit,
+  PreToolUse, PostToolUse, PostToolUseFailure, PermissionRequest, Stop and
+  SessionEnd, all running `lazyai __claude-hook`.
+- Claude payloads have no turn ID; call identity is `session:tool_use_id`.
+- `Write`/`Edit`/`MultiEdit`/`NotebookEdit` snapshot on PreToolUse and record
+  writes on successful PostToolUse; `Read` records reads. Bash is not inferred.
+- Schema v5 stores `claude_session_id`; Show records use the `claude:` prefix.
+  Reopening runs `claude --resume <id>` unless an explicit session flag is passed.
 
 ## Verification
 

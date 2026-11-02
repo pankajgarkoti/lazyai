@@ -70,4 +70,4 @@ case ":$PATH:" in
   *":$dest:"*) ;;
   *) printf 'lazyai install: add %s to your PATH\n' "$dest" ;;
 esac
-printf 'lazyai install: requires opencode (V2) or codex (0.155.1+); run lazyai inside a project for setup\n'
+printf 'lazyai install: requires opencode (V2), codex (0.155.1+) or claude (2.0+); run lazyai inside a project for setup\n'

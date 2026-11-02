@@ -87,7 +87,7 @@ CREATE TABLE IF NOT EXISTS runtime_sessions (
 // `schema`; each later version is one entry in `migrations`, applied in order
 // on Open. Migrations are additive only: an older binary keeps working on a
 // newer database because every query names its columns.
-const schemaVersion = 4
+const schemaVersion = 5
 
 var migrations = []string{
 	// v1: workstream identity. Old rows read back with empty nickname and
@@ -100,6 +100,8 @@ var migrations = []string{
 	`ALTER TABLE worktrees ADD COLUMN codex_session_id TEXT NOT NULL DEFAULT '';`,
 	// v4: V2 conversations have their own lifecycle and must never resume V1 IDs.
 	`ALTER TABLE worktrees ADD COLUMN opencode2_session_id TEXT NOT NULL DEFAULT '';`,
+	// v5: Claude Code conversations, separate from the other backends' histories.
+	`ALTER TABLE worktrees ADD COLUMN claude_session_id TEXT NOT NULL DEFAULT '';`,
 }
 
 // Worktree is a worktree LazyAI has run a workstream in.
@@ -116,6 +118,7 @@ type Worktree struct {
 	SessionID          string // OpenCode conversation to resume when reopening
 	CodexSessionID     string // Codex conversation; never passed to OpenCode
 	OpenCode2SessionID string // OpenCode 2 conversation; never passed to V1
+	ClaudeSessionID    string // Claude Code conversation
 }
 
 // RuntimeSession is one project-scoped supervisor known to LazyAI.
@@ -315,6 +318,11 @@ func (d *DB) SetWorktreeCodexSession(repo, branch, sessionID string) error {
 	return err
 }
 
+func (d *DB) SetWorktreeClaudeSession(repo, branch, sessionID string) error {
+	_, err := d.db.Exec(`UPDATE worktrees SET claude_session_id = ? WHERE repo = ? AND branch = ?`, sessionID, repo, branch)
+	return err
+}
+
 func (d *DB) SetWorktreeOpenCode2Session(repo, branch, sessionID string) error {
 	_, err := d.db.Exec(`UPDATE worktrees SET opencode2_session_id = ? WHERE repo = ? AND branch = ?`, sessionID, repo, branch)
 	return err
@@ -330,7 +338,7 @@ func (d *DB) SetDormant(repo, branch string, dormant bool) error {
 	return err
 }
 
-const worktreeColumns = `repo, branch, path, linked, created_at, last_opened, dormant, nickname, description, session_id, codex_session_id, opencode2_session_id`
+const worktreeColumns = `repo, branch, path, linked, created_at, last_opened, dormant, nickname, description, session_id, codex_session_id, opencode2_session_id, claude_session_id`
 
 // Worktrees lists every worktree recorded for a repo, most recently opened first.
 func (d *DB) Worktrees(repo string) ([]Worktree, error) {
@@ -353,7 +361,7 @@ func (d *DB) queryWorktrees(q string, args ...any) ([]Worktree, error) {
 		var w Worktree
 		var linked, dormant int
 		var created, opened string
-		if err := rows.Scan(&w.Repo, &w.Branch, &w.Path, &linked, &created, &opened, &dormant, &w.Nickname, &w.Description, &w.SessionID, &w.CodexSessionID, &w.OpenCode2SessionID); err != nil {
+		if err := rows.Scan(&w.Repo, &w.Branch, &w.Path, &linked, &created, &opened, &dormant, &w.Nickname, &w.Description, &w.SessionID, &w.CodexSessionID, &w.OpenCode2SessionID, &w.ClaudeSessionID); err != nil {
 			return nil, err
 		}
 		w.Linked, w.Dormant = linked == 1, dormant == 1

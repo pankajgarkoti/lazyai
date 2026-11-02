@@ -37,7 +37,7 @@ func testBridge(t *testing.T, receive func(hooks.Event) (any, error)) Bridge {
 			http.Error(w, err.Error(), 400)
 			return
 		}
-		if ev.Backend != "codex" {
+		if ev.Backend != "codex" && ev.Backend != "claude" {
 			http.Error(w, "missing backend", 400)
 			return
 		}

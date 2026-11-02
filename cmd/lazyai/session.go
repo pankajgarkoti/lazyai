@@ -32,10 +32,10 @@ func agentForLaunch(project config.Agent, selected string) (config.Agent, error)
 		return project, nil
 	}
 	switch selected {
-	case "opencode", "codex":
+	case "opencode", "codex", "claude":
 		return config.Agent{Backend: selected}, nil
 	default:
-		return config.Agent{}, fmt.Errorf("unknown session agent %q (choose opencode or codex)", selected)
+		return config.Agent{}, fmt.Errorf("unknown session agent %q (choose opencode, codex or claude)", selected)
 	}
 }
 
@@ -44,9 +44,14 @@ func run(args []string) error {
 		switch args[0] {
 		case "__mcp":
 			return codex.FromEnv().ServeMCP(os.Stdin, os.Stdout)
-		case "__codex-hook":
+		case "__codex-hook", "__claude-hook":
 			bridge := codex.FromEnv()
-			if err := bridge.Hook(os.Stdin, os.Stdout); err != nil {
+			hook := bridge.Hook
+			if args[0] == "__claude-hook" {
+				bridge.Backend = "claude"
+				hook = bridge.ClaudeHook
+			}
+			if err := hook(os.Stdin, os.Stdout); err != nil {
 				_, _ = bridge.Send(hooks.Event{Type: "integration.error", Title: err.Error()})
 				return err
 			}
@@ -104,6 +109,8 @@ func attachSession(args []string) error {
 		if _, openErr := exec.LookPath("opencode"); openErr != nil && opts.bin == "" && opts.agent == "" {
 			if _, codexErr := exec.LookPath("codex"); codexErr == nil {
 				defaultAgent = "codex"
+			} else if _, claudeErr := exec.LookPath("claude"); claudeErr == nil {
+				defaultAgent = "claude"
 			}
 		}
 		if setupErr := onboarding.Run(project, os.Stdin, os.Stdout, onboarding.Options{

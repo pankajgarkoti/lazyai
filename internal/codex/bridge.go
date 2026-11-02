@@ -1,4 +1,5 @@
-// Package codex translates Codex hooks and MCP calls into LazyAI host events.
+// Package codex translates Codex and Claude Code hooks and MCP calls into
+// LazyAI host events.
 package codex
 
 import (
@@ -17,18 +18,26 @@ import (
 
 type Bridge struct {
 	Root, URL, Token string
+	Backend          string // "codex" (default) or "claude"
 	Client           *http.Client
 }
 
 func FromEnv() Bridge {
-	return Bridge{Root: os.Getenv("LAZYAI_WORKTREE"), URL: os.Getenv("LAZYAI_HOOK_URL"), Token: os.Getenv("LAZYAI_HOOK_TOKEN")}
+	return Bridge{Root: os.Getenv("LAZYAI_WORKTREE"), URL: os.Getenv("LAZYAI_HOOK_URL"), Token: os.Getenv("LAZYAI_HOOK_TOKEN"), Backend: os.Getenv("LAZYAI_BACKEND")}
+}
+
+func (b Bridge) backend() string {
+	if b.Backend == "" {
+		return "codex"
+	}
+	return b.Backend
 }
 
 func (b Bridge) Send(ev hooks.Event) (json.RawMessage, error) {
 	if b.URL == "" || b.Token == "" {
 		return nil, fmt.Errorf("LazyAI is not connected")
 	}
-	ev.Backend = "codex"
+	ev.Backend = b.backend()
 	data, err := json.Marshal(ev)
 	if err != nil {
 		return nil, err
